@@ -8,8 +8,15 @@
     "scheme": "hotsuhaibupdater",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "updates": {
+      "url": "https://u.expo.dev/c06395f4-5a58-4257-8985-e3e08d7f06fb"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.hotsuhaibupdater.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +26,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.hotsuhaibupdater.app"
     },
     "web": {
       "output": "static",
@@ -40,9 +48,12 @@
         }
       ]
     ],
-    "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
-    }
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c06395f4-5a58-4257-8985-e3e08d7f06fb"
+      }
+    },
+    "owner": "suhaibwadi"
   }
 }
