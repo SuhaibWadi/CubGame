@@ -25,35 +25,41 @@ function TabNavigator() {
           let iconName: any;
 
           if (route.name === "Home") {
-            iconName = focused ? "home" : "home-outline";
+            iconName = focused ? "game-controller" : "game-controller-outline";
           } else if (route.name === "Profile") {
-            iconName = focused ? "person" : "person-outline";
+            iconName = focused ? "trophy" : "trophy-outline";
           } else if (route.name === "Settings") {
-            iconName = focused ? "settings" : "settings-outline";
+            iconName = focused ? "options" : "options-outline";
           }
 
-          return <Ionicons name={iconName} size={size} color={color} />;
+          return <Ionicons name={iconName} size={28} color={color} />;
         },
         tabBarActiveTintColor: theme.primary,
-        tabBarInactiveTintColor: isDark ? "#888" : "#666",
+        tabBarInactiveTintColor: isDark ? "#444" : "#AAA",
+        tabBarShowLabel: false,
         tabBarStyle: {
-          backgroundColor: theme.background,
-          borderTopColor: isDark ? "#333" : "#EEE",
-          paddingBottom: 5,
-          height: 60,
+          backgroundColor: isDark ? "#0A0A0B" : "#F0F2F5",
+          borderTopWidth: 0,
+          elevation: 0,
+          height: 85,
+          paddingBottom: 20,
         },
         headerStyle: {
           backgroundColor: theme.background,
           elevation: 0,
           shadowOpacity: 0,
-          borderBottomWidth: 1,
-          borderBottomColor: isDark ? "#333" : "#EEE",
+          borderBottomWidth: 0,
+        },
+        headerTitleStyle: {
+          fontWeight: "900",
+          fontSize: 20,
+          letterSpacing: 0.5,
         },
         headerTintColor: theme.text,
       })}
     >
-      <Tab.Screen name="Profile" component={ProfileScreen} />
       <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
   );

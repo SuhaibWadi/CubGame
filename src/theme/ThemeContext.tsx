@@ -3,14 +3,20 @@ import { useColorScheme } from "react-native";
 
 export const Colors = {
   light: {
-    background: "#FFFFFF",
-    text: "#000000",
-    primary: "#007AFF",
+    background: "#F0F2F5",
+    text: "#1A1A1A",
+    primary: "#FF2D55",
+    secondary: "#5856D6",
+    card: "rgba(255, 255, 255, 0.8)",
+    accent: "#FF9500",
   },
   dark: {
-    background: "#121212",
+    background: "#0A0A0B",
     text: "#FFFFFF",
-    primary: "#0A84FF",
+    primary: "#FF2D55",
+    secondary: "#5E5CE6",
+    card: "rgba(28, 28, 30, 0.7)",
+    accent: "#FFD60A",
   },
 };
 
