@@ -25,7 +25,7 @@ import { ResultOverlay } from "../components/game/ResultOverlay";
 import { GamePhase, Tile } from "../components/game/types";
 
 // Services & Store
-import { socketService } from "../services/socketService";
+import { multiplayerService } from "../services/multiplayerService";
 import { useGameStore } from "../store/gameStore";
 import { useTheme } from "../theme/ThemeContext";
 
@@ -48,13 +48,15 @@ export default function GameScreen() {
   const route = useRoute<any>();
   const isCustomMode = route.params?.mode === "custom";
   const isOnlineMode = route.params?.mode === "online";
+  const roomCode = route.params?.roomCode;
 
   const { theme, isDark } = useTheme();
   const { addWin, addLoss } = useGameStore();
 
   // --- Game State ---
   const [lives, setLives] = useState(3);
-  const [grid, setGrid] = useState<Tile[]>([]);
+  const [myGrid, setMyGrid] = useState<Tile[]>([]);
+  const [opponentGrid, setOpponentGrid] = useState<Tile[]>([]);
   const [phase, setPhase] = useState<GamePhase>("playing");
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(1);
@@ -63,6 +65,7 @@ export default function GameScreen() {
   // --- Multiplayer State ---
   const [isMyTurn, setIsMyTurn] = useState(!isOnlineMode);
   const [opponentLives, setOpponentLives] = useState(3);
+  const [lastRemoteMoveId, setLastRemoteMoveId] = useState<number | null>(null);
 
   // --- Custom Setup State ---
   const [selectedBombs, setSelectedBombs] = useState<number[]>([]);
@@ -135,7 +138,7 @@ export default function GameScreen() {
       }
     }
 
-    setGrid(tiles);
+    setMyGrid(tiles);
     setLives(3);
     setScore(0);
     setCombo(1);
@@ -144,7 +147,7 @@ export default function GameScreen() {
   }, []);
 
   const startSetup = useCallback(() => {
-    setGrid(
+    setMyGrid(
       Array.from({ length: TOTAL_TILES }, (_, i) => ({
         id: i,
         type: "safe",
@@ -162,8 +165,13 @@ export default function GameScreen() {
   useEffect(() => {
     if (isCustomMode) {
       startSetup();
-    } else if (isOnlineMode && route.params?.board) {
-      setGrid(route.params.board);
+    } else if (
+      isOnlineMode &&
+      route.params?.myBoard &&
+      route.params?.opponentBoard
+    ) {
+      setMyGrid(route.params.myBoard);
+      setOpponentGrid(route.params.opponentBoard);
       setPhase("playing");
       setIsMyTurn(route.params.isHost);
     } else {
@@ -180,11 +188,11 @@ export default function GameScreen() {
   // --- Remote Move Handler ---
   const handleRemoteMove = useCallback(
     (tileId: number) => {
-      setGrid((prevGrid) => {
+      setLastRemoteMoveId(tileId);
+      setOpponentGrid((prevGrid) => {
         const newGrid = [...prevGrid];
-        if (newGrid[tileId]) {
+        if (newGrid[tileId] && !newGrid[tileId].flipped) {
           newGrid[tileId].flipped = true;
-          setIsMyTurn(true);
 
           const tile = newGrid[tileId];
           if (tile.type === "bomb") {
@@ -204,19 +212,51 @@ export default function GameScreen() {
   );
 
   useEffect(() => {
-    if (isOnlineMode) {
-      socketService.onMoveReceived((data: any) =>
-        handleRemoteMove(data.tileId),
-      );
-      socketService.onOpponentWon(() => {
-        setPhase("game_over");
-        addLoss(score);
+    if (isOnlineMode && roomCode) {
+      multiplayerService.onMoveReceived(roomCode, (data: any) => {
+        if (data && data.tileId !== undefined) {
+          handleRemoteMove(data.tileId);
+        }
       });
+
+      multiplayerService.onTurnChanged(roomCode, (turn) => {
+        const amIHost = route.params.isHost;
+        const myTurnString = amIHost ? "host" : "opponent";
+        const itIsMyTurn = turn === myTurnString;
+
+        setIsMyTurn(itIsMyTurn);
+      });
+
+      multiplayerService.onGameOver(roomCode, (winner) => {
+        const amIHost = route.params.isHost;
+        const didIWin =
+          (amIHost && winner === "host") || (!amIHost && winner === "opponent");
+
+        if (didIWin) {
+          setPhase("game_won");
+          playSound("win");
+          addWin(score, maxCombo);
+        } else {
+          setPhase("game_over");
+          addLoss(score);
+        }
+      });
+
+      return () => {
+        if (roomCode) multiplayerService.cleanup(roomCode);
+      };
     }
-    return () => {
-      // Cleanup listeners if needed
-    };
-  }, [isOnlineMode, handleRemoteMove, addLoss, score]);
+  }, [
+    isOnlineMode,
+    roomCode,
+    handleRemoteMove,
+    addWin,
+    addLoss,
+    score,
+    maxCombo,
+    playSound,
+    route.params.isHost,
+  ]);
 
   const handleTilePress = (tile: Tile) => {
     if (phase === "setup_bombs") {
@@ -233,13 +273,17 @@ export default function GameScreen() {
     } else if (phase === "playing") {
       if (tile.flipped || (isOnlineMode && !isMyTurn)) return;
 
-      const newGrid = [...grid];
+      const newGrid = [...myGrid];
       newGrid[tile.id].flipped = true;
-      setGrid(newGrid);
+      setMyGrid(newGrid);
 
-      if (isOnlineMode) {
-        socketService.emitMove(tile.id);
-        setIsMyTurn(false);
+      if (isOnlineMode && roomCode) {
+        multiplayerService.emitMove(roomCode, tile.id);
+        setLastRemoteMoveId(null); // Clear ours when we move
+        multiplayerService.updateTurn(
+          roomCode,
+          route.params.isHost ? "opponent" : "host",
+        );
       }
 
       if (tile.type === "bomb") {
@@ -251,6 +295,12 @@ export default function GameScreen() {
         if (newLives <= 0) {
           setPhase("game_over");
           addLoss(score);
+          if (isOnlineMode && roomCode) {
+            multiplayerService.emitGameOver(
+              roomCode,
+              route.params.isHost ? "opponent" : "host",
+            );
+          }
         }
       } else if (tile.type === "heart") {
         playSound("heart");
@@ -271,17 +321,22 @@ export default function GameScreen() {
         setPhase("game_won");
         playSound("win");
         addWin(score, maxCombo);
-        if (isOnlineMode) socketService.emitWin();
+        if (isOnlineMode && roomCode) {
+          multiplayerService.emitGameOver(
+            roomCode,
+            route.params.isHost ? "host" : "opponent",
+          );
+        }
       }
     }
   };
 
   const startCustomGame = () => {
     playSound("flip");
-    const newGrid = [...grid];
+    const newGrid = [...myGrid];
     selectedBombs.forEach((id) => (newGrid[id].type = "bomb"));
     if (selectedHeart !== null) newGrid[selectedHeart].type = "heart";
-    setGrid(newGrid);
+    setMyGrid(newGrid);
     setLives(3);
     setPhase("playing");
   };
@@ -303,14 +358,53 @@ export default function GameScreen() {
         bombsCount={BOMBS_COUNT}
       />
 
+      {isOnlineMode && (
+        <View style={styles.opponentSection}>
+          <Text style={[styles.sectionTitle, { color: theme.secondary }]}>
+            ENEMY FIELD
+          </Text>
+          <View style={styles.opponentGridMini}>
+            {opponentGrid.map((tile, idx) => (
+              <GameTile
+                key={`opp-${tile.id}`}
+                tile={tile}
+                onPress={() => {}}
+                isDark={isDark}
+                theme={theme}
+                phase={phase}
+                selectedBombs={[]}
+                selectedHeart={null}
+                index={idx}
+                isLastRemoteMove={lastRemoteMoveId === tile.id}
+                size={miniTileSize}
+              />
+            ))}
+          </View>
+        </View>
+      )}
+
       <View
         style={[
           styles.gridCard,
-          { backgroundColor: isDark ? "#121212" : "#FFF" },
+          {
+            backgroundColor: isDark ? "#121212" : "#FFF",
+            marginTop: isOnlineMode ? 20 : 0,
+          },
         ]}
+        pointerEvents={isOnlineMode && !isMyTurn ? "none" : "auto"}
       >
-        <View style={styles.grid}>
-          {grid.map((tile, idx) => (
+        <Text
+          style={[
+            styles.sectionTitle,
+            { color: theme.primary, marginBottom: 10 },
+          ]}
+        >
+          {isOnlineMode ? "YOUR FIELD" : ""}
+        </Text>
+        <View
+          style={[styles.grid, isOnlineMode && !isMyTurn && { opacity: 0.7 }]}
+        >
+          {myGrid.map((tile, idx) => (
             <GameTile
               key={tile.id}
               tile={tile}
@@ -396,7 +490,7 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     justifyContent: "center",
   },
-  footer: { marginTop: 40, width: "100%", alignItems: "center" },
+  footer: { marginTop: 20, width: "100%", alignItems: "center" },
   mainButton: {
     flexDirection: "row",
     paddingHorizontal: 35,
@@ -406,4 +500,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   mainButtonText: { color: "#FFF", fontSize: 18, fontWeight: "800" },
+  opponentSection: {
+    width: "90%",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  sectionTitle: {
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 2,
+    marginBottom: 5,
+  },
+  opponentGridMini: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    width: "100%",
+    opacity: 0.8,
+  },
 });
+
+const miniTileSize = (screenWidth * 0.45) / 4;

@@ -1,6 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import React from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { AVATAR_MAP } from "../../theme/Avatars";
 
 interface PlayerItemProps {
   name: string;
@@ -10,6 +12,7 @@ interface PlayerItemProps {
   isDark: boolean;
   theme: any;
   isMaster?: boolean;
+  avatar?: string | null;
 }
 
 export const PlayerItem = ({
@@ -20,6 +23,7 @@ export const PlayerItem = ({
   isDark,
   theme,
   isMaster = false,
+  avatar,
 }: PlayerItemProps) => {
   return (
     <View
@@ -34,13 +38,22 @@ export const PlayerItem = ({
       <View
         style={[
           styles.avatar,
-          { backgroundColor: isConnecting ? "#8E8E93" : theme.primary },
+          {
+            backgroundColor: isConnecting ? "#8E8E93" : "#FFF",
+            overflow: "hidden",
+          },
         ]}
       >
         {isConnecting ? (
           <ActivityIndicator size="small" color="#FFF" />
+        ) : avatar && AVATAR_MAP[avatar] ? (
+          <Image
+            source={AVATAR_MAP[avatar]}
+            style={styles.avatarImage}
+            contentFit="cover"
+          />
         ) : (
-          <Ionicons name="person" size={24} color="#FFF" />
+          <Ionicons name="person" size={24} color={theme.primary} />
         )}
       </View>
       <View style={styles.playerInfo}>
@@ -83,5 +96,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#888",
     marginTop: 2,
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
   },
 });

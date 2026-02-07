@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Share,
@@ -9,54 +9,128 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Tile } from "../components/game/types";
 import { PlayerItem } from "../components/multiplayer/PlayerItem";
-import { socketService } from "../services/socketService";
+import { multiplayerService } from "../services/multiplayerService";
+import { useGameStore } from "../store/gameStore";
 import { useTheme } from "../theme/ThemeContext";
+
+const GRID_SIZE = 4;
+const TOTAL_TILES = GRID_SIZE * GRID_SIZE;
+const BOMBS_COUNT = 5;
+const HEARTS_COUNT = 1;
 
 export default function WaitingRoomScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { theme, isDark } = useTheme();
+  const { profile } = useGameStore();
 
   const { isHost, roomCode: joinCode } = route.params;
   const [roomCode, setRoomCode] = useState(joinCode || "");
-  const [status, setStatus] = useState("Connecting to server...");
+  const [status, setStatus] = useState("Connecting to Firebase...");
   const [opponent, setOpponent] = useState<any>(null);
 
-  useEffect(() => {
-    socketService.connect();
+  const generateBoard = useCallback(() => {
+    const tiles: Tile[] = Array.from({ length: TOTAL_TILES }, (_, i) => ({
+      id: i,
+      type: "safe",
+      flipped: false,
+    }));
 
-    if (isHost) {
-      socketService.createRoom((newCode) => {
-        setRoomCode(newCode);
-        setStatus("Room created! Waiting for opponent...");
-      });
-    } else {
-      socketService.joinRoom(joinCode, (success) => {
-        if (success) {
-          setStatus("Joined successfully! Waiting for host to start...");
-        } else {
-          setStatus("Error: Room not found or full.");
-        }
-      });
+    let bombsPlaced = 0;
+    while (bombsPlaced < BOMBS_COUNT) {
+      const idx = Math.floor(Math.random() * TOTAL_TILES);
+      if (tiles[idx].type === "safe") {
+        tiles[idx].type = "bomb";
+        bombsPlaced++;
+      }
     }
 
-    socketService.onOpponentJoined((player) => {
-      setOpponent(player);
-      setStatus("Opponent ready! Starting game...");
-    });
+    let heartsPlaced = 0;
+    while (heartsPlaced < HEARTS_COUNT) {
+      const idx = Math.floor(Math.random() * TOTAL_TILES);
+      if (tiles[idx].type === "safe") {
+        tiles[idx].type = "heart";
+        heartsPlaced++;
+      }
+    }
+    return tiles;
+  }, []);
 
-    socketService.onGameStart((gameData) => {
-      navigation.navigate("Game", { mode: "online", board: gameData.board });
+  const handleStartGame = async () => {
+    if (!roomCode) return;
+    const hostBoard = generateBoard();
+    const opponentBoard = generateBoard();
+    await multiplayerService.startGame(roomCode, { hostBoard, opponentBoard });
+    navigation.navigate("Game", {
+      mode: "online",
+      myBoard: hostBoard,
+      opponentBoard: opponentBoard,
+      isHost: true,
+      roomCode,
+      opponentProfile: opponent,
     });
+  };
 
-    return () => {};
+  useEffect(() => {
+    const playerData = {
+      name: profile.name,
+      avatar: profile.avatar,
+      handle: profile.handle,
+    };
+
+    const setupMultiplayer = async () => {
+      try {
+        if (isHost) {
+          const code = await multiplayerService.createRoom(playerData);
+          setRoomCode(code);
+          setStatus("Room created! Waiting for opponent...");
+
+          multiplayerService.onOpponentJoined(code, (opponentProfile) => {
+            setOpponent(opponentProfile);
+            setStatus("Opponent ready! You can start the battle.");
+          });
+        } else {
+          const result = await multiplayerService.joinRoom(
+            joinCode,
+            playerData,
+          );
+          if (result.success) {
+            setOpponent(result.host);
+            setStatus("Joined! Waiting for Host to start...");
+
+            multiplayerService.onGameStarted(joinCode, (gameData) => {
+              navigation.navigate("Game", {
+                mode: "online",
+                myBoard: gameData.opponentBoard, // We are opponent, so opponentBoard is our board
+                opponentBoard: gameData.hostBoard,
+                isHost: false,
+                roomCode: joinCode,
+                opponentProfile: result.host,
+              });
+            });
+          } else {
+            setStatus("Error: Room not found or full.");
+          }
+        }
+      } catch (error) {
+        console.error(error);
+        setStatus("Firebase Error: Check your connection.");
+      }
+    };
+
+    setupMultiplayer();
+
+    return () => {
+      if (roomCode) multiplayerService.cleanup(roomCode);
+    };
   }, [navigation, isHost, joinCode]);
 
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Join my CubGame! Room Code: ${roomCode}`,
+        message: `Join my Cub Blast battle! Room Code: ${roomCode}`,
       });
     } catch (error: any) {
       console.log(error.message);
@@ -66,7 +140,7 @@ export default function WaitingRoomScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>Waiting Lobby</Text>
+        <Text style={[styles.title, { color: theme.text }]}>Battle Lobby</Text>
         <View
           style={[
             styles.codeBox,
@@ -74,7 +148,7 @@ export default function WaitingRoomScreen() {
           ]}
         >
           <Text style={[styles.codeLabel, { color: isDark ? "#888" : "#666" }]}>
-            ROOM CODE
+            BATTLE CODE
           </Text>
           <Text style={[styles.codeText, { color: theme.primary }]}>
             {roomCode || "------"}
@@ -82,7 +156,7 @@ export default function WaitingRoomScreen() {
           <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
             <Ionicons name="share-outline" size={20} color={theme.primary} />
             <Text style={[styles.shareText, { color: theme.primary }]}>
-              Invite Friend
+              Invite Opponent
             </Text>
           </TouchableOpacity>
         </View>
@@ -90,27 +164,42 @@ export default function WaitingRoomScreen() {
 
       <View style={styles.playersList}>
         <PlayerItem
-          name="You"
+          name={profile.name}
           status="Ready"
           isReady={true}
           isConnecting={false}
           isDark={isDark}
           theme={theme}
-          isMaster={true}
+          isMaster={isHost}
+          avatar={profile.avatar}
         />
 
         <PlayerItem
-          name={opponent ? "Opponent" : "Waiting..."}
+          name={opponent ? opponent.name : "Waiting..."}
           status={opponent ? "Ready" : "Searching..."}
           isReady={!!opponent}
           isConnecting={!opponent}
           isDark={isDark}
           theme={theme}
+          isMaster={!isHost}
+          avatar={opponent ? opponent.avatar : null}
         />
       </View>
 
       <View style={styles.footer}>
-        <ActivityIndicator color={theme.primary} size="large" />
+        {isHost && opponent && (
+          <TouchableOpacity
+            style={[styles.startButton, { backgroundColor: theme.primary }]}
+            onPress={handleStartGame}
+          >
+            <Text style={styles.startText}>START BATTLE</Text>
+          </TouchableOpacity>
+        )}
+        <ActivityIndicator
+          color={theme.primary}
+          size="large"
+          style={{ marginBottom: 10 }}
+        />
         <Text style={[styles.statusText, { color: isDark ? "#AAA" : "#666" }]}>
           {status}
         </Text>
@@ -118,7 +207,7 @@ export default function WaitingRoomScreen() {
           style={styles.cancelButton}
           onPress={() => navigation.goBack()}
         >
-          <Text style={styles.cancelText}>Leave Room</Text>
+          <Text style={styles.cancelText}>Leave Battle</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -159,6 +248,19 @@ const styles = StyleSheet.create({
   playersList: { marginTop: 50, flex: 1 },
   footer: { alignItems: "center", paddingBottom: 40 },
   statusText: { marginTop: 15, fontSize: 15, fontWeight: "600" },
+  startButton: {
+    width: "100%",
+    paddingVertical: 18,
+    borderRadius: 20,
+    alignItems: "center",
+    marginBottom: 20,
+  },
+  startText: {
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "900",
+    letterSpacing: 2,
+  },
   cancelButton: { marginTop: 30 },
   cancelText: { color: "#FF3B30", fontWeight: "700" },
 });

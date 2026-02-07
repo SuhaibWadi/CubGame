@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { ms, s, vs } from "../theme/Dimensions";
 import { useTheme } from "../theme/ThemeContext";
 
 export default function SettingsScreen() {
@@ -120,7 +121,7 @@ export default function SettingsScreen() {
           VERSION 1.0.0 (BETA)
         </Text>
         <Text style={[styles.footerText, { color: isDark ? "#333" : "#DDD" }]}>
-          MADE WITH ❤️ BY ANTIGRAVITY
+          MADE WITH ❤️ BY SUHAIB WADI
         </Text>
       </View>
     </ScrollView>
@@ -132,53 +133,54 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    padding: 24,
+    padding: s(24),
+    paddingTop: vs(80),
   },
   section: {
-    marginBottom: 32,
+    marginBottom: vs(32),
   },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "900",
-    marginBottom: 12,
+    marginBottom: vs(12),
     letterSpacing: 2,
   },
   item: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: 16,
-    borderRadius: 20,
-    marginBottom: 8,
+    padding: s(16),
+    borderRadius: s(20),
+    marginBottom: vs(8),
   },
   itemLeft: {
     flexDirection: "row",
     alignItems: "center",
   },
   iconWrapper: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: s(40),
+    height: s(40),
+    borderRadius: s(12),
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 16,
+    marginRight: s(16),
   },
   itemLabel: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: "700",
   },
   footer: {
-    marginTop: 40,
+    marginTop: vs(40),
     alignItems: "center",
   },
   versionText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "900",
     letterSpacing: 1,
-    marginBottom: 4,
+    marginBottom: vs(4),
   },
   footerText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "800",
     letterSpacing: 1,
   },

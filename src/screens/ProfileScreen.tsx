@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import React from "react";
+import React, { useState } from "react";
 import {
-  Dimensions,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,13 +11,15 @@ import {
   View,
 } from "react-native";
 import { useGameStore } from "../store/gameStore";
+import { ms, s, vs } from "../theme/Dimensions";
 import { useTheme } from "../theme/ThemeContext";
 
-const { width } = Dimensions.get("window");
+import { AVATAR_LIST, AVATAR_MAP } from "../theme/Avatars";
 
 export default function ProfileScreen() {
   const { theme, isDark } = useTheme();
-  const { profile, stats } = useGameStore();
+  const { profile, stats, updateProfile } = useGameStore();
+  const [modalVisible, setModalVisible] = useState(false);
 
   const StatItem = ({ label, value, icon, color }: any) => (
     <View
@@ -37,6 +40,11 @@ export default function ProfileScreen() {
     </View>
   );
 
+  const handleSelectAvatar = (avatarKey: string) => {
+    updateProfile({ avatar: avatarKey });
+    setModalVisible(false);
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -47,11 +55,27 @@ export default function ProfileScreen() {
           <View style={styles.headerContent}>
             <View style={styles.avatarContainer}>
               <View style={styles.avatarBorder}>
-                <View style={[styles.avatar, { backgroundColor: "#FFF" }]}>
-                  <Ionicons name="person" size={50} color={theme.primary} />
+                <View
+                  style={[
+                    styles.avatar,
+                    { backgroundColor: "#FFF", overflow: "hidden" },
+                  ]}
+                >
+                  {profile.avatar && AVATAR_MAP[profile.avatar] ? (
+                    <Image
+                      source={AVATAR_MAP[profile.avatar]}
+                      style={styles.avatarImage}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <Ionicons name="person" size={50} color={theme.primary} />
+                  )}
                 </View>
               </View>
-              <TouchableOpacity style={styles.editBadge}>
+              <TouchableOpacity
+                style={styles.editBadge}
+                onPress={() => setModalVisible(true)}
+              >
                 <Ionicons name="camera" size={16} color="#FFF" />
               </TouchableOpacity>
             </View>
@@ -158,6 +182,58 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Avatar Selection Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: isDark ? "#121212" : "#FFF" },
+            ]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>
+                CHOOSE YOUR HERO
+              </Text>
+              <TouchableOpacity onPress={() => setModalVisible(false)}>
+                <Ionicons
+                  name="close-circle"
+                  size={28}
+                  color={isDark ? "#444" : "#CCC"}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.avatarGrid}>
+              {AVATAR_LIST.map((key) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[
+                    styles.avatarOption,
+                    profile.avatar === key && {
+                      borderColor: theme.primary,
+                      borderWidth: 3,
+                    },
+                  ]}
+                  onPress={() => handleSelectAvatar(key)}
+                >
+                  <Image
+                    source={AVATAR_MAP[key]}
+                    style={styles.optionImage}
+                    contentFit="cover"
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -167,45 +243,49 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerGradient: {
-    paddingTop: 60,
-    paddingBottom: 60,
-    borderBottomLeftRadius: 50,
-    borderBottomRightRadius: 50,
+    paddingTop: vs(90),
+    paddingBottom: vs(60),
+    borderBottomLeftRadius: s(50),
+    borderBottomRightRadius: s(50),
   },
   headerContent: {
     alignItems: "center",
   },
   avatarContainer: {
     position: "relative",
-    marginBottom: 16,
+    marginBottom: vs(16),
   },
   avatarBorder: {
-    padding: 4,
-    borderRadius: 60,
+    padding: s(4),
+    borderRadius: s(60),
     backgroundColor: "rgba(255,255,255,0.3)",
   },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: s(100),
+    height: s(100),
+    borderRadius: s(50),
     alignItems: "center",
     justifyContent: "center",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
   },
   editBadge: {
     position: "absolute",
     bottom: 0,
     right: 0,
     backgroundColor: "#000",
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: s(32),
+    height: s(32),
+    borderRadius: s(16),
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
     borderColor: "#FFF",
   },
   userName: {
-    fontSize: 28,
+    fontSize: ms(28),
     fontWeight: "900",
     color: "#FFF",
     letterSpacing: -0.5,
@@ -213,81 +293,80 @@ const styles = StyleSheet.create({
   rankBadge: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 8,
+    paddingHorizontal: s(10),
+    paddingVertical: vs(4),
+    borderRadius: s(12),
+    marginTop: vs(8),
   },
   rankText: {
     color: "#FFF",
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "800",
-    marginLeft: 4,
+    marginLeft: s(4),
   },
   content: {
-    padding: 24,
-    marginTop: -30,
+    padding: s(24),
   },
   sectionTitle: {
-    fontSize: 14,
+    fontSize: ms(14),
     fontWeight: "900",
     letterSpacing: 1.5,
-    marginBottom: 16,
+    marginBottom: vs(16),
     opacity: 0.6,
   },
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 12,
+    gap: s(12),
   },
   statBox: {
-    width: (width - 60) / 2,
+    width: s(165),
     flexDirection: "row",
     alignItems: "center",
-    padding: 16,
-    borderRadius: 20,
+    padding: s(16),
+    borderRadius: s(20),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.05)",
   },
   statIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: s(40),
+    height: s(40),
+    borderRadius: s(12),
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
+    marginRight: s(12),
   },
   statValue: {
-    fontSize: 18,
+    fontSize: ms(18),
     fontWeight: "900",
   },
   statLabel: {
-    fontSize: 11,
+    fontSize: ms(11),
     fontWeight: "700",
-    marginTop: 2,
+    marginTop: vs(2),
   },
   achievementsScroll: {
     flexDirection: "row",
-    gap: 12,
+    gap: s(12),
   },
   achievementCard: {
-    padding: 16,
-    borderRadius: 20,
+    padding: s(16),
+    borderRadius: s(20),
     alignItems: "center",
-    width: 120,
+    width: s(120),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.05)",
   },
   achievementIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: s(50),
+    height: s(50),
+    borderRadius: s(25),
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 8,
+    marginBottom: vs(8),
   },
   achievementName: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "800",
     textAlign: "center",
   },
@@ -304,5 +383,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900",
     letterSpacing: 2,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.8)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    borderTopLeftRadius: s(40),
+    borderTopRightRadius: s(40),
+    padding: s(30),
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: vs(30),
+  },
+  modalTitle: {
+    fontSize: ms(20),
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+  avatarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: s(16),
+    justifyContent: "center",
+  },
+  avatarOption: {
+    width: s(95),
+    aspectRatio: 1,
+    borderRadius: s(20),
+    overflow: "hidden",
+    backgroundColor: "rgba(0,0,0,0.05)",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  optionImage: {
+    width: "100%",
+    height: "100%",
   },
 });

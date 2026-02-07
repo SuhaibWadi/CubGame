@@ -18,6 +18,7 @@ import Animated, {
   withRepeat,
   withTiming,
 } from "react-native-reanimated";
+import { ms, s, vs } from "../theme/Dimensions";
 import { useTheme } from "../theme/ThemeContext";
 
 const { width } = Dimensions.get("window");
@@ -193,7 +194,7 @@ export default function HomeScreen() {
             <Text style={styles.badgeText}>BETA v1.0</Text>
           </View>
           <Text style={[styles.title, { color: theme.text }]}>
-            THE CUB{"\n"}BATTLE
+            CUB{"\n"}BLAST
           </Text>
           <Text style={[styles.subtitle, { color: isDark ? "#888" : "#666" }]}>
             Choose your arena
@@ -266,7 +267,7 @@ export default function HomeScreen() {
           <Text
             style={[styles.footerText, { color: isDark ? "#444" : "#CCC" }]}
           >
-            DESIGNED BY ANTIGRAVITY
+            DESIGNED BY SUHAIB WADI
           </Text>
         </View>
       </ScrollView>
@@ -279,114 +280,145 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    padding: 24,
-    paddingTop: 60,
+    padding: s(24),
+    paddingTop: vs(80),
   },
   header: {
-    marginBottom: 40,
+    marginBottom: vs(40),
   },
   badge: {
     backgroundColor: "#FF2D55",
     alignSelf: "flex-start",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginBottom: 12,
+    paddingHorizontal: s(8),
+    paddingVertical: vs(4),
+    borderRadius: s(6),
+    marginBottom: vs(12),
   },
   badgeText: {
     color: "#FFF",
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "900",
     letterSpacing: 1,
   },
   title: {
-    fontSize: 48,
+    fontSize: ms(48),
     fontWeight: "900",
-    lineHeight: 48,
+    lineHeight: ms(48),
     letterSpacing: -1,
   },
   subtitle: {
-    fontSize: 18,
+    fontSize: ms(18),
     fontWeight: "600",
-    marginTop: 8,
+    marginTop: vs(8),
     opacity: 0.8,
   },
   grid: {
-    gap: 16,
+    gap: vs(16),
   },
   card: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 16,
-    borderRadius: 24,
+    padding: s(16),
+    borderRadius: s(24),
     // Blur effect simulation
     elevation: 2,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
   },
+  modalContent: {
+    borderTopLeftRadius: s(40),
+    borderTopRightRadius: s(40),
+    padding: s(30),
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: vs(30),
+  },
+  modalTitle: {
+    fontSize: ms(20),
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+  avatarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: s(16),
+    justifyContent: "center",
+  },
+  avatarOption: {
+    width: s(95),
+    aspectRatio: 1,
+    borderRadius: s(20),
+    overflow: "hidden",
+    backgroundColor: "rgba(0,0,0,0.05)",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
   iconWrapper: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
+    width: s(60),
+    height: s(60),
+    borderRadius: s(20),
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 16,
+    marginRight: s(16),
   },
   cardContent: {
     flex: 1,
   },
   cardTitle: {
-    fontSize: 18,
+    fontSize: ms(18),
     fontWeight: "900",
     letterSpacing: 0.5,
   },
   cardDescription: {
-    fontSize: 13,
-    marginTop: 2,
+    fontSize: ms(13),
+    marginTop: vs(2),
     fontWeight: "500",
   },
   arrowCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: s(32),
+    height: s(32),
+    borderRadius: s(16),
     alignItems: "center",
     justifyContent: "center",
   },
   statsCard: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 20,
-    borderRadius: 28,
-    marginTop: 32,
+    padding: s(20),
+    borderRadius: s(28),
+    marginTop: vs(32),
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.1)",
   },
   statsIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: s(48),
+    height: s(48),
+    borderRadius: s(16),
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 16,
+    marginRight: s(16),
   },
   statsInfo: {
     flex: 1,
   },
   statsTitle: {
-    fontSize: 16,
+    fontSize: ms(16),
     fontWeight: "900",
   },
   statsSubtitle: {
-    fontSize: 12,
+    fontSize: ms(12),
     fontWeight: "600",
   },
   footer: {
-    marginTop: 60,
+    marginTop: vs(60),
     alignItems: "center",
   },
   footerText: {
-    fontSize: 10,
+    fontSize: ms(10),
     fontWeight: "900",
     letterSpacing: 2,
   },

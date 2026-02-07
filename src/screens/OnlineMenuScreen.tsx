@@ -43,7 +43,7 @@ export default function OnlineMenuScreen() {
           Online Multiplayer
         </Text>
         <Text style={[styles.subtitle, { color: isDark ? "#AAA" : "#666" }]}>
-          Play with your friends anywhere in the world.
+          Play with your friends anywhere in the world. yes
         </Text>
       </View>
 

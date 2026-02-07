@@ -1,7 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import Animated from "react-native-reanimated";
+import { useGameStore } from "../../store/gameStore";
+import { AVATAR_MAP } from "../../theme/Avatars";
 import { GamePhase } from "./types";
 
 interface GameHeaderProps {
@@ -33,6 +36,7 @@ export const GameHeader = ({
   selectedBombsLength,
   bombsCount,
 }: GameHeaderProps) => {
+  const { profile } = useGameStore();
   const isSetup = phase === "setup_bombs" || phase === "setup_heart";
 
   if (isSetup) {
@@ -56,12 +60,32 @@ export const GameHeader = ({
     <View style={styles.header}>
       <View style={styles.gameInfo}>
         <View style={styles.scoreContainer}>
-          <Text style={[styles.scoreLabel, { color: theme.primary }]}>
-            {isOnlineMode ? "YOUR HP" : "SCORE"}
-          </Text>
-          <Text style={[styles.scoreValue, { color: theme.text }]}>
-            {isOnlineMode ? lives : Math.floor(score).toLocaleString()}
-          </Text>
+          <View style={styles.playerWrapper}>
+            <View
+              style={[
+                styles.avatarMini,
+                { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#FFF" },
+              ]}
+            >
+              {profile.avatar && AVATAR_MAP[profile.avatar] ? (
+                <Image
+                  source={AVATAR_MAP[profile.avatar]}
+                  style={styles.avatarMiniImage}
+                  contentFit="cover"
+                />
+              ) : (
+                <Ionicons name="person" size={14} color={theme.primary} />
+              )}
+            </View>
+            <View>
+              <Text style={[styles.scoreLabel, { color: theme.primary }]}>
+                {isOnlineMode ? "YOUR HP" : "SCORE"}
+              </Text>
+              <Text style={[styles.scoreValue, { color: theme.text }]}>
+                {isOnlineMode ? lives : Math.floor(score).toLocaleString()}
+              </Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.centerInfo}>
@@ -140,6 +164,25 @@ const styles = StyleSheet.create({
   scoreValue: {
     fontSize: 20,
     fontWeight: "900",
+  },
+  playerWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  avatarMini: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  avatarMiniImage: {
+    width: "100%",
+    height: "100%",
   },
   centerInfo: {
     alignItems: "center",

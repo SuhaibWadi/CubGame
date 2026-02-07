@@ -2,9 +2,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import React from "react";
+import * as SplashScreen from "expo-splash-screen";
+import React, { useCallback, useEffect, useState } from "react";
+import { View } from "react-native";
 import { ThemeProvider, useTheme } from "./theme/ThemeContext";
 
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync();
+
+import { UpdateOverlay } from "./components/common/UpdateOverlay";
 import GameScreen from "./screens/GameScreen";
 import HomeScreen from "./screens/HomeScreen";
 import OnlineMenuScreen from "./screens/OnlineMenuScreen";
@@ -37,6 +43,7 @@ function TabNavigator() {
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: isDark ? "#444" : "#AAA",
         tabBarShowLabel: false,
+        headerShown: false,
         tabBarStyle: {
           backgroundColor: isDark ? "#0A0A0B" : "#F0F2F5",
           borderTopWidth: 0,
@@ -82,7 +89,7 @@ function Navigation() {
           options={{
             headerStyle: { backgroundColor: theme.background },
             headerTintColor: theme.text,
-            headerTitle: "CubGame",
+            headerTitle: "Cub Blast",
             headerBackTitle: "Back",
           }}
         />
@@ -112,9 +119,42 @@ function Navigation() {
 }
 
 export default function App() {
+  const [appIsReady, setAppIsReady] = useState(false);
+
+  useEffect(() => {
+    async function prepare() {
+      try {
+        // Pre-load fonts, make any API calls you need to do here
+        // We add an artificial delay to show the cool logo!
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        // Tell the application to render
+        setAppIsReady(true);
+      }
+    }
+
+    prepare();
+  }, []);
+
+  const onLayoutRootView = useCallback(async () => {
+    if (appIsReady) {
+      // This tells the splash screen to hide immediately!
+      await SplashScreen.hideAsync();
+    }
+  }, [appIsReady]);
+
+  if (!appIsReady) {
+    return null;
+  }
+
   return (
     <ThemeProvider>
-      <Navigation />
+      <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+        <Navigation />
+        <UpdateOverlay />
+      </View>
     </ThemeProvider>
   );
 }

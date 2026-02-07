@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "HotSuhaibUpdater",
+    "name": "Cub Blast",
     "slug": "HotSuhaibUpdater",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -38,11 +38,11 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 300,
           "resizeMode": "contain",
-          "backgroundColor": "#000000",
+          "backgroundColor": "#050B1B",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#050B1B"
           }
         }
       ]

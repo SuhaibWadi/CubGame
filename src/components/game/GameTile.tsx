@@ -13,17 +13,20 @@ import { GamePhase, Tile } from "./types";
 const GRID_SIZE = 4;
 const screenWidth = Dimensions.get("window").width;
 const tileMargin = 10;
-const tileSize = (screenWidth - (GRID_SIZE + 1) * tileMargin) / GRID_SIZE;
+const tileSizeDefault =
+  (screenWidth - (GRID_SIZE + 1) * tileMargin) / GRID_SIZE;
 
 interface GameTileProps {
   tile: Tile;
-  onPress: () => void;
+  onPress?: () => void;
   isDark: boolean;
   theme: any;
   phase: GamePhase;
-  selectedBombs: number[];
-  selectedHeart: number | null;
+  selectedBombs?: number[];
+  selectedHeart?: number | null;
   index: number;
+  isLastRemoteMove?: boolean;
+  size?: number;
 }
 
 export const GameTile = ({
@@ -32,10 +35,13 @@ export const GameTile = ({
   isDark,
   theme,
   phase,
-  selectedBombs,
-  selectedHeart,
+  selectedBombs = [],
+  selectedHeart = null,
   index,
+  isLastRemoteMove,
+  size,
 }: GameTileProps) => {
+  const currentTileSize = size || tileSizeDefault;
   const flip = useSharedValue(0);
   const entry = useSharedValue(0);
 
@@ -80,10 +86,16 @@ export const GameTile = ({
     <TouchableOpacity
       activeOpacity={0.8}
       onPress={onPress}
-      disabled={tile.flipped && phase === "playing"}
+      disabled={(tile.flipped && phase === "playing") || !onPress}
       style={styles.tileContainer}
     >
-      <Animated.View style={[styles.tile, animatedStyle]}>
+      <Animated.View
+        style={[
+          styles.tile,
+          { width: currentTileSize - 4, height: currentTileSize - 4 },
+          animatedStyle,
+        ]}
+      >
         <Animated.View
           style={[
             styles.tile,
@@ -105,7 +117,7 @@ export const GameTile = ({
           {isSelected ? (
             <Ionicons
               name={phase === "setup_bombs" ? "nuclear" : "heart"}
-              size={32}
+              size={currentTileSize * 0.4}
               color={theme.primary}
             />
           ) : (
@@ -113,7 +125,7 @@ export const GameTile = ({
               style={{
                 color: theme.primary,
                 fontWeight: "900",
-                fontSize: 24,
+                fontSize: currentTileSize * 0.3,
                 opacity: 0.5,
               }}
             >
@@ -135,9 +147,10 @@ export const GameTile = ({
                     : isDark
                       ? "rgba(255,255,255,0.15)"
                       : "#FFFFFF",
-              borderWidth: 2,
-              borderColor:
-                tile.type === "bomb"
+              borderWidth: isLastRemoteMove ? 4 : 2,
+              borderColor: isLastRemoteMove
+                ? "#FFD700" // Gold highlight for last remote move
+                : tile.type === "bomb"
                   ? "#FF3B30"
                   : tile.type === "heart"
                     ? "#34C759"
@@ -149,11 +162,23 @@ export const GameTile = ({
           ]}
         >
           {tile.type === "bomb" ? (
-            <MaterialCommunityIcons name="skull" size={32} color="#FF3B30" />
+            <MaterialCommunityIcons
+              name="skull"
+              size={currentTileSize * 0.4}
+              color="#FF3B30"
+            />
           ) : tile.type === "heart" ? (
-            <Ionicons name="heart" size={32} color="#34C759" />
+            <Ionicons
+              name="heart"
+              size={currentTileSize * 0.4}
+              color="#34C759"
+            />
           ) : (
-            <Ionicons name="flash" size={32} color={theme.primary} />
+            <Ionicons
+              name="flash"
+              size={currentTileSize * 0.4}
+              color={theme.primary}
+            />
           )}
         </Animated.View>
       </Animated.View>
@@ -163,14 +188,10 @@ export const GameTile = ({
 
 const styles = StyleSheet.create({
   tileContainer: {
-    width: tileSize - 4,
-    height: tileSize - 4,
-    margin: 4,
+    margin: 2,
   },
   tile: {
-    width: "100%",
-    height: "100%",
-    borderRadius: 18,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     elevation: 3,
