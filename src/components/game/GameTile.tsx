@@ -79,8 +79,7 @@ export const GameTile = ({
   }));
 
   const isSelected =
-    (phase === "setup_bombs" && selectedBombs.includes(tile.id)) ||
-    (phase === "setup_heart" && selectedHeart === tile.id);
+    phase === "setup_bombs" && (tile.type === "bomb" || tile.type === "heart");
 
   return (
     <TouchableOpacity
@@ -116,8 +115,8 @@ export const GameTile = ({
         >
           {isSelected ? (
             <Ionicons
-              name={phase === "setup_bombs" ? "nuclear" : "heart"}
-              size={currentTileSize * 0.4}
+              name={tile.type === "bomb" ? "nuclear" : "heart"}
+              size={currentTileSize * 0.5}
               color={theme.primary}
             />
           ) : (

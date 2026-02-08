@@ -1,32 +1,26 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { useAudioPlayer } from "expo-audio";
 import React, { useCallback, useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Dimensions,
+  Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
 import ConfettiCannon from "react-native-confetti-cannon";
-import {
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-} from "react-native-reanimated";
 
 // Components
-import { GameHeader } from "../components/game/GameHeader";
 import { GameTile } from "../components/game/GameTile";
-import { ResultOverlay } from "../components/game/ResultOverlay";
-import { GamePhase, Tile } from "../components/game/types";
+import { Tile, TileType } from "../components/game/types";
 
 // Services & Store
 import { multiplayerService } from "../services/multiplayerService";
-import { useGameStore } from "../store/gameStore";
 import { useTheme } from "../theme/ThemeContext";
 
 const GRID_SIZE = 4;
@@ -35,6 +29,10 @@ const BOMBS_COUNT = 5;
 const HEARTS_COUNT = 1;
 
 const screenWidth = Dimensions.get("window").width;
+// Smaller tile size for better fit
+// GRID_SIZE = 4. 4 tiles + margins.
+// previous logic was auto.
+// Let's rely on passing size prop.
 
 const SOUNDS = {
   flip: "https://raw.githubusercontent.com/lucsn/scavenge-the-stars/master/assets/audio/sfx/click.mp3",
@@ -46,36 +44,29 @@ const SOUNDS = {
 
 export default function GameScreen() {
   const route = useRoute<any>();
-  const isCustomMode = route.params?.mode === "custom";
+  const navigation = useNavigation<any>();
   const isOnlineMode = route.params?.mode === "online";
-  const roomCode = route.params?.roomCode;
+  const { roomCode, playerId, isHost, opponentId } = route.params || {};
 
   const { theme, isDark } = useTheme();
-  const { addWin, addLoss } = useGameStore();
+  // We can use gameStore for offline stats, but for online logic we manage state locally
+  // to avoid conflicting with single player store.
 
   // --- Game State ---
-  const [lives, setLives] = useState(3);
+  const [phase, setPhase] = useState<
+    "setup" | "waiting" | "playing" | "game_over"
+  >("setup");
+
+  // My Board (Defending)
   const [myGrid, setMyGrid] = useState<Tile[]>([]);
+  const [myLives, setMyLives] = useState(3);
+
+  // Opponent Board (Attacking)
   const [opponentGrid, setOpponentGrid] = useState<Tile[]>([]);
-  const [phase, setPhase] = useState<GamePhase>("playing");
-  const [score, setScore] = useState(0);
-  const [combo, setCombo] = useState(1);
-  const [maxCombo, setMaxCombo] = useState(1);
-
-  // --- Multiplayer State ---
-  const [isMyTurn, setIsMyTurn] = useState(!isOnlineMode);
   const [opponentLives, setOpponentLives] = useState(3);
-  const [lastRemoteMoveId, setLastRemoteMoveId] = useState<number | null>(null);
 
-  // --- Custom Setup State ---
-  const [selectedBombs, setSelectedBombs] = useState<number[]>([]);
-  const [selectedHeart, setSelectedHeart] = useState<number | null>(null);
-
-  // --- Animations ---
-  const heartShake = useSharedValue(0);
-  const animatedHeartStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: heartShake.value }],
-  }));
+  const [currentTurn, setCurrentTurn] = useState<string>("");
+  const [winner, setWinner] = useState<string | null>(null);
 
   // --- Sound Players ---
   const flipPlayer = useAudioPlayer(SOUNDS.flip);
@@ -97,427 +88,630 @@ export default function GameScreen() {
         player?.seekTo(0);
         player?.play();
       } catch (e) {
-        console.log("Error playing sound", e);
+        console.log(e);
       }
     },
     [flipPlayer, bombPlayer, heartPlayer, winPlayer],
   );
 
-  const triggerHeartShake = () => {
-    heartShake.value = withSequence(
-      withRepeat(withTiming(10, { duration: 50 }), 6, true),
-      withTiming(0, { duration: 50 }),
-    );
-  };
-
-  // --- Game Logic ---
-  const initializeRandomGame = useCallback(() => {
-    const tiles: Tile[] = Array.from({ length: TOTAL_TILES }, (_, i) => ({
+  // --- Initialization ---
+  useEffect(() => {
+    // Initialize empty grids
+    const emptyGrid = Array.from({ length: TOTAL_TILES }, (_, i) => ({
       id: i,
-      type: "safe",
+      type: "safe" as TileType,
       flipped: false,
     }));
+    setMyGrid([...emptyGrid]);
+    setOpponentGrid([...emptyGrid]);
 
-    // Place bombs
-    let bombsPlaced = 0;
-    while (bombsPlaced < BOMBS_COUNT) {
-      const idx = Math.floor(Math.random() * TOTAL_TILES);
-      if (tiles[idx].type === "safe") {
-        tiles[idx].type = "bomb";
-        bombsPlaced++;
-      }
-    }
-
-    // Place heart
-    let heartsPlaced = 0;
-    while (heartsPlaced < HEARTS_COUNT) {
-      const idx = Math.floor(Math.random() * TOTAL_TILES);
-      if (tiles[idx].type === "safe") {
-        tiles[idx].type = "heart";
-        heartsPlaced++;
-      }
-    }
-
-    setMyGrid(tiles);
-    setLives(3);
-    setScore(0);
-    setCombo(1);
-    setMaxCombo(1);
-    setPhase("playing");
-  }, []);
-
-  const startSetup = useCallback(() => {
-    setMyGrid(
-      Array.from({ length: TOTAL_TILES }, (_, i) => ({
-        id: i,
-        type: "safe",
-        flipped: false,
-      })),
-    );
-    setPhase("setup_bombs");
-    setScore(0);
-    setCombo(1);
-    setMaxCombo(1);
-    setSelectedBombs([]);
-    setSelectedHeart(null);
-  }, []);
-
-  useEffect(() => {
-    if (isCustomMode) {
-      startSetup();
-    } else if (
-      isOnlineMode &&
-      route.params?.myBoard &&
-      route.params?.opponentBoard
-    ) {
-      setMyGrid(route.params.myBoard);
-      setOpponentGrid(route.params.opponentBoard);
-      setPhase("playing");
-      setIsMyTurn(route.params.isHost);
+    if (isOnlineMode) {
+      setPhase("setup");
     } else {
-      initializeRandomGame();
+      // Fallback for offline (not the focus now but keep simple)
+      setPhase("setup"); // Or standard setup
     }
-  }, [
-    isCustomMode,
-    isOnlineMode,
-    route.params,
-    startSetup,
-    initializeRandomGame,
-  ]);
+  }, [isOnlineMode]);
 
-  // --- Remote Move Handler ---
-  const handleRemoteMove = useCallback(
-    (tileId: number) => {
-      setLastRemoteMoveId(tileId);
-      setOpponentGrid((prevGrid) => {
-        const newGrid = [...prevGrid];
-        if (newGrid[tileId] && !newGrid[tileId].flipped) {
-          newGrid[tileId].flipped = true;
-
-          const tile = newGrid[tileId];
-          if (tile.type === "bomb") {
-            setOpponentLives((prev) => prev - 1);
-            playSound("bomb");
-          } else if (tile.type === "heart") {
-            setOpponentLives((prev) => Math.min(prev + 1, 5));
-            playSound("heart");
-          } else {
-            playSound("flip");
-          }
-        }
-        return newGrid;
-      });
-    },
-    [playSound],
-  );
-
+  // --- Online Logic ---
   useEffect(() => {
-    if (isOnlineMode && roomCode) {
-      multiplayerService.onMoveReceived(roomCode, (data: any) => {
-        if (data && data.tileId !== undefined) {
-          handleRemoteMove(data.tileId);
+    if (!isOnlineMode || !roomCode) return;
+
+    const unsubscribe = multiplayerService.subscribeToRoom(roomCode, (room) => {
+      console.log(
+        "[GameScreen] Subscription Update:",
+        room.status,
+        room.game_state?.version,
+      );
+      // Game Started logic
+      if (room.status === "playing") {
+        setPhase((prevPhase) => {
+          // Only transition if we are not already playing
+          if (prevPhase !== "playing" && prevPhase !== "game_over") {
+            // Initialize Opponent Board logic here?
+            // We need to do this OUTSIDE the state updater or use a separate synchronization effect.
+            // Ideally, we just setPhase here, and a separate useEffect handles 'playing' mount?
+            // Or we just do it here carefully.
+            // We can't access stale closures easily if we remove deps.
+            // But room data IS available here (payload).
+            return "playing";
+          }
+          return prevPhase;
+        });
+
+        // Load Opponent Board Data (always safe to overwrite if we are playing)
+        const oppId = isHost ? room.opponent_id : room.host_id;
+        if (oppId && room.game_state[oppId]?.boardConfig) {
+          // We should check if we already have it to avoid flicker?
+          // But this runs on every update.
+          // Actually, preventing re-set is good.
+          setOpponentGrid((prev) => {
+            if (prev.length > 0 && prev[0].flipped === undefined) return prev; // already set?
+            // No, checking length is not enough.
+            // Let's just map it. React handles diffing.
+            return room.game_state[oppId].boardConfig.map((t: Tile) => ({
+              ...t,
+              flipped: false, // Start hidden
+            }));
+          });
         }
-      });
 
-      multiplayerService.onTurnChanged(roomCode, (turn) => {
-        const amIHost = route.params.isHost;
-        const myTurnString = amIHost ? "host" : "opponent";
-        const itIsMyTurn = turn === myTurnString;
-
-        setIsMyTurn(itIsMyTurn);
-      });
-
-      multiplayerService.onGameOver(roomCode, (winner) => {
-        const amIHost = route.params.isHost;
-        const didIWin =
-          (amIHost && winner === "host") || (!amIHost && winner === "opponent");
-
-        if (didIWin) {
-          setPhase("game_won");
-          playSound("win");
-          addWin(score, maxCombo);
-        } else {
-          setPhase("game_over");
-          addLoss(score);
-        }
-      });
-
-      return () => {
-        if (roomCode) multiplayerService.cleanup(roomCode);
-      };
-    }
-  }, [
-    isOnlineMode,
-    roomCode,
-    handleRemoteMove,
-    addWin,
-    addLoss,
-    score,
-    maxCombo,
-    playSound,
-    route.params.isHost,
-  ]);
-
-  const handleTilePress = (tile: Tile) => {
-    if (phase === "setup_bombs") {
-      playSound("flip");
-      if (selectedBombs.includes(tile.id)) {
-        setSelectedBombs(selectedBombs.filter((id) => id !== tile.id));
-      } else if (selectedBombs.length < BOMBS_COUNT) {
-        setSelectedBombs([...selectedBombs, tile.id]);
-      }
-    } else if (phase === "setup_heart") {
-      if (selectedBombs.includes(tile.id)) return;
-      playSound("flip");
-      setSelectedHeart(tile.id);
-    } else if (phase === "playing") {
-      if (tile.flipped || (isOnlineMode && !isMyTurn)) return;
-
-      const newGrid = [...myGrid];
-      newGrid[tile.id].flipped = true;
-      setMyGrid(newGrid);
-
-      if (isOnlineMode && roomCode) {
-        multiplayerService.emitMove(roomCode, tile.id);
-        setLastRemoteMoveId(null); // Clear ours when we move
-        multiplayerService.updateTurn(
-          roomCode,
-          route.params.isHost ? "opponent" : "host",
-        );
+        if (room.game_state.turn) setCurrentTurn(room.game_state.turn);
       }
 
-      if (tile.type === "bomb") {
-        playSound("bomb");
-        triggerHeartShake();
-        const newLives = lives - 1;
-        setLives(newLives);
-        setCombo(1);
-        if (newLives <= 0) {
-          setPhase("game_over");
-          addLoss(score);
-          if (isOnlineMode && roomCode) {
-            multiplayerService.emitGameOver(
-              roomCode,
-              route.params.isHost ? "opponent" : "host",
+      // Listening to Moves
+      if (room.status === "playing" || room.status === "game_over") {
+        if (room.game_state.turn) setCurrentTurn(room.game_state.turn);
+
+        // Sync My Defending Board
+        const myState = room.game_state[playerId];
+        if (myState && myState.revealedIndexes) {
+          setMyGrid((prev) =>
+            prev.map((t, i) => {
+              if (myState.revealedIndexes.includes(i) && !t.flipped) {
+                if (t.type === "bomb") playSound("bomb");
+                else playSound("flip");
+                return { ...t, flipped: true }; // This reveals the tile on My Board
+              }
+              return t;
+            }),
+          );
+          setMyLives(myState.lives);
+        }
+
+        // Sync Opponent Board
+        const oppId = isHost ? room.opponent_id : room.host_id;
+        if (oppId && room.game_state[oppId]) {
+          const oppState = room.game_state[oppId];
+          setOpponentLives(oppState.lives);
+
+          if (oppState.revealedIndexes) {
+            setOpponentGrid((prev) =>
+              prev.map((t, i) => {
+                // Determine if we need to reveal
+                const shouldFlip = oppState.revealedIndexes.includes(i);
+                if (shouldFlip && !t.flipped) {
+                  return { ...t, flipped: true };
+                }
+                return t;
+              }),
             );
           }
         }
-      } else if (tile.type === "heart") {
-        playSound("heart");
-        setLives((prev) => Math.min(prev + 1, 5));
-        setScore((prev) => prev + 500);
-      } else {
-        playSound("flip");
-        setScore((prev) => prev + 100 * combo);
-        const newCombo = Math.min(combo + 0.2, 5);
-        setCombo(newCombo);
-        if (newCombo > maxCombo) setMaxCombo(newCombo);
-      }
 
-      const safeTilesLeft = newGrid.filter(
-        (t) => t.type === "safe" && !t.flipped,
-      ).length;
-      if (safeTilesLeft === 0 && phase === "playing") {
-        setPhase("game_won");
-        playSound("win");
-        addWin(score, maxCombo);
-        if (isOnlineMode && roomCode) {
-          multiplayerService.emitGameOver(
-            roomCode,
-            route.params.isHost ? "host" : "opponent",
-          );
+        // Check Winner
+        if (myState?.lives === 0)
+          setWinner(room.game_state.opponentName || "Opponent");
+        const oppState =
+          room.game_state[isHost ? room.opponent_id! : room.host_id];
+        if (oppState?.lives === 0) setWinner("You");
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isOnlineMode, roomCode, playerId, isHost]);
+
+  // --- Handlers ---
+
+  // Setup Phase: Place Bombs/Hearts on MyGrid
+  const handleSetupPress = (tile: Tile) => {
+    const bombsCount = myGrid.filter((t) => t.type === "bomb").length;
+    const heartCount = myGrid.filter((t) => t.type === "heart").length;
+
+    setMyGrid((prev) =>
+      prev.map((t) => {
+        if (t.id === tile.id) {
+          let next: TileType = "safe";
+          if (t.type === "safe") {
+            if (bombsCount < BOMBS_COUNT) next = "bomb";
+            else if (heartCount < HEARTS_COUNT) next = "heart";
+          } else if (t.type === "bomb") {
+            if (heartCount < HEARTS_COUNT) next = "heart";
+          }
+          return { ...t, type: next };
         }
+        return t;
+      }),
+    );
+    playSound("flip");
+  };
+
+  const confirmSetup = async () => {
+    const bombs = myGrid.filter((t) => t.type === "bomb").length;
+    const hearts = myGrid.filter((t) => t.type === "heart").length;
+
+    if (bombs !== BOMBS_COUNT || hearts !== HEARTS_COUNT) {
+      Alert.alert(
+        "Setup Incomplete",
+        `Place ${BOMBS_COUNT} bombs and ${HEARTS_COUNT} heart.`,
+      );
+      return;
+    }
+
+    setPhase("waiting");
+    try {
+      const resultStatus = await multiplayerService.submitBoard(
+        roomCode,
+        playerId,
+        myGrid,
+      );
+      if (resultStatus === "playing") {
+        setPhase("playing");
+
+        // Trigger refresh immediately
+        const room = await multiplayerService.getRoomData(roomCode);
+        if (room) {
+          // Turn
+          if (room.game_state.turn) setCurrentTurn(room.game_state.turn);
+
+          // Opponent
+          const oppId = isHost ? room.opponent_id : room.host_id;
+          if (oppId && room.game_state[oppId]) {
+            const oppConfig = room.game_state[oppId].boardConfig;
+            if (oppConfig) {
+              setOpponentGrid((prev) => {
+                if (prev.length > 0 && prev[0].flipped === undefined)
+                  return prev;
+                return oppConfig.map((t: any) => ({ ...t, flipped: false }));
+              });
+            }
+            if (room.game_state[oppId].lives !== undefined) {
+              setOpponentLives(room.game_state[oppId].lives);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[GameScreen] submitBoard failed:", e);
+    }
+  };
+
+  // Playing Phase: Attack Opponent
+  const handleAttack = async (tile: Tile) => {
+    if (phase !== "playing") return;
+    if (currentTurn !== playerId) {
+      Alert.alert("Wait!", "It's the opponent's turn.");
+      return;
+    }
+    if (tile.flipped) return;
+
+    // 1. Reveal locally immediately for responsiveness
+    const newGrid = [...opponentGrid];
+    const targetTile = newGrid[tile.id];
+    targetTile.flipped = true;
+    setOpponentGrid(newGrid);
+
+    let newOppLives = opponentLives;
+    let hitBomb = false;
+
+    if (targetTile.type === "bomb") {
+      playSound("bomb");
+      newOppLives = Math.max(0, opponentLives - 1);
+      setOpponentLives(newOppLives);
+      hitBomb = true;
+    } else if (targetTile.type === "heart") {
+      playSound("heart");
+      // No effect for hitting a heart logic defined, just sound
+    } else {
+      playSound("flip");
+    }
+
+    // 2. Sync to DB
+    const targetId = opponentId;
+
+    if (targetId) {
+      const revealed = newGrid.filter((t) => t.flipped).map((t) => t.id);
+
+      // Atomic Update: Update Board AND Switch Turn
+      // We read the latest room data inside the service usually, but here we construct the payload.
+      // To be safe, we should fetch-merge-write or trust our local calculation if we are the turn holder.
+      // Since we know it's our turn, we are the authority on the next state of the board.
+
+      try {
+        const room = await multiplayerService.getRoomData(roomCode);
+        if (room) {
+          const currentState = room.game_state;
+          const nextState = {
+            ...currentState,
+            [targetId]: {
+              ...currentState[targetId],
+              lives: newOppLives,
+              revealedIndexes: revealed,
+            },
+            turn: targetId, // Switch turn IMMEDIATELY in the same update
+            version: (currentState.version || 0) + 1,
+          };
+
+          await multiplayerService.updateGameState(roomCode, nextState);
+          setCurrentTurn(targetId); // Update local immediately
+        }
+      } catch (e) {
+        console.error("Failed to sync attack:", e);
       }
     }
   };
 
-  const startCustomGame = () => {
-    playSound("flip");
-    const newGrid = [...myGrid];
-    selectedBombs.forEach((id) => (newGrid[id].type = "bomb"));
-    if (selectedHeart !== null) newGrid[selectedHeart].type = "heart";
-    setMyGrid(newGrid);
-    setLives(3);
-    setPhase("playing");
+  const syncGameState = async () => {
+    try {
+      const room = await multiplayerService.getRoomData(roomCode);
+      if (!room) return;
+
+      // Check Game Over
+      const myState = room.game_state[playerId];
+      const oppId = isHost ? room.opponent_id : room.host_id;
+      const oppState = oppId ? room.game_state[oppId] : null;
+
+      if (myState?.lives === 0) {
+        setWinner(room.game_state.opponentName || "Opponent");
+        setPhase("game_over");
+      } else if (oppState?.lives === 0) {
+        setWinner("You");
+        setPhase("game_over");
+      } else if (room.status === "playing") {
+        if (phase !== "playing") setPhase("playing");
+
+        // Sync Turn
+        if (room.game_state.turn && room.game_state.turn !== currentTurn) {
+          setCurrentTurn(room.game_state.turn);
+        }
+
+        // Sync Opponent
+        if (oppId && oppState) {
+          if (oppState.lives !== undefined) {
+            setOpponentLives(oppState.lives);
+          }
+
+          // Sync Grid: Merge Types and Flips
+          if (oppState.boardConfig) {
+            setOpponentGrid((prev) => {
+              return prev.map((t, i) => {
+                const serverType = oppState.boardConfig[i]?.type || "safe";
+                const serverFlipped = oppState.revealedIndexes?.includes(i);
+                // Keep local flip if true (optimistic), otherwise use server
+                const isFlipped = t.flipped || serverFlipped;
+
+                return {
+                  ...t,
+                  id: i, // ensure ID consistency
+                  type: serverType,
+                  flipped: isFlipped,
+                };
+              });
+            });
+          }
+        }
+
+        // Sync My Board
+        if (myState) {
+          if (myState.lives !== undefined) setMyLives(myState.lives);
+          if (myState.revealedIndexes) {
+            setMyGrid((prev) =>
+              prev.map((t, i) => {
+                const serverFlipped = myState.revealedIndexes.includes(i);
+                // For my board, we play sound if new flip detected (optional, but skip for sync fn)
+                if (serverFlipped && !t.flipped) {
+                  return { ...t, flipped: true };
+                }
+                return t;
+              }),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      // console.log("Sync failed:", e);
+    }
   };
+
+  // --- Polling Fallback ---
+  useEffect(() => {
+    if (!roomCode) return;
+
+    // Initial sync
+    syncGameState();
+
+    const interval = setInterval(() => {
+      syncGameState();
+    }, 2000); // Poll every 2 seconds
+
+    return () => clearInterval(interval);
+  }, [phase, roomCode, isHost]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <GameHeader
-        phase={phase}
-        isOnlineMode={isOnlineMode}
-        isMyTurn={isMyTurn}
-        lives={lives}
-        opponentLives={opponentLives}
-        score={score}
-        combo={combo}
-        theme={theme}
-        isDark={isDark}
-        animatedHeartStyle={animatedHeartStyle}
-        selectedBombsLength={selectedBombs.length}
-        bombsCount={BOMBS_COUNT}
-      />
-
-      {isOnlineMode && (
-        <View style={styles.opponentSection}>
-          <Text style={[styles.sectionTitle, { color: theme.secondary }]}>
-            ENEMY FIELD
+      {/* --- HUD --- */}
+      <View style={styles.hud}>
+        <View style={styles.playerStats}>
+          <Ionicons name="person" size={20} color={isDark ? "#FFF" : "#333"} />
+          <Text style={[styles.statsText, { color: theme.text }]}>
+            You: {myLives} ❤️
           </Text>
-          <View style={styles.opponentGridMini}>
-            {opponentGrid.map((tile, idx) => (
+        </View>
+
+        <View style={styles.turnBadge}>
+          {phase === "playing" ? (
+            <Text
+              style={[
+                styles.turnText,
+                { color: currentTurn === playerId ? "#4CAF50" : "#F44336" },
+              ]}
+            >
+              {currentTurn === playerId ? "YOUR TURN" : "THEIR TURN"}
+            </Text>
+          ) : (
+            <Text style={styles.turnText}>
+              {phase === "setup" ? "SETUP" : "WAITING"}
+            </Text>
+          )}
+        </View>
+        <View style={styles.playerStats}>
+          <Ionicons name="skull" size={20} color={isDark ? "#FFF" : "#333"} />
+          <Text style={[styles.statsText, { color: theme.text }]}>
+            {" "}
+            Enemy: {opponentLives} ❤️
+          </Text>
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        {/* --- TOP: ENEMY BOARD (ATTACK) --- */}
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>
+          Enemy Territory (Attack!)
+        </Text>
+        <View
+          style={[
+            styles.gridContainer,
+            {
+              opacity:
+                phase === "playing" && currentTurn === playerId ? 1 : 0.5,
+            },
+          ]}
+        >
+          {phase === "playing" ? (
+            <View style={styles.grid}>
+              {opponentGrid.map((tile, i) => (
+                <GameTile
+                  key={`opp-${i}`}
+                  tile={tile}
+                  index={i}
+                  theme={theme}
+                  isDark={isDark}
+                  onPress={() => handleAttack(tile)}
+                  phase={phase}
+                  size={screenWidth / 6.5}
+                />
+              ))}
+            </View>
+          ) : (
+            <View style={styles.placeholder}>
+              <Text style={{ color: "#888" }}>Waiting for game start...</Text>
+            </View>
+          )}
+        </View>
+
+        {/* --- DIVIDER --- */}
+        <View style={styles.divider} />
+
+        {/* --- BOTTOM: MY BOARD (DEFEND) --- */}
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>
+          My Base (Defend)
+        </Text>
+        <View style={styles.gridContainer}>
+          <View style={styles.grid}>
+            {myGrid.map((tile, i) => (
               <GameTile
-                key={`opp-${tile.id}`}
+                key={`my-${i}`}
                 tile={tile}
-                onPress={() => {}}
-                isDark={isDark}
+                index={i}
                 theme={theme}
-                phase={phase}
-                selectedBombs={[]}
-                selectedHeart={null}
-                index={idx}
-                isLastRemoteMove={lastRemoteMoveId === tile.id}
-                size={miniTileSize}
+                isDark={isDark}
+                onPress={() => phase === "setup" && handleSetupPress(tile)}
+                phase={phase === "setup" ? "setup_bombs" : "playing"}
+                // "setup_bombs" allows editing. "playing" shows reveals.
+                size={screenWidth / 6.5}
               />
             ))}
           </View>
         </View>
-      )}
 
-      <View
-        style={[
-          styles.gridCard,
-          {
-            backgroundColor: isDark ? "#121212" : "#FFF",
-            marginTop: isOnlineMode ? 20 : 0,
-          },
-        ]}
-        pointerEvents={isOnlineMode && !isMyTurn ? "none" : "auto"}
-      >
-        <Text
-          style={[
-            styles.sectionTitle,
-            { color: theme.primary, marginBottom: 10 },
-          ]}
-        >
-          {isOnlineMode ? "YOUR FIELD" : ""}
-        </Text>
-        <View
-          style={[styles.grid, isOnlineMode && !isMyTurn && { opacity: 0.7 }]}
-        >
-          {myGrid.map((tile, idx) => (
-            <GameTile
-              key={tile.id}
-              tile={tile}
-              onPress={() => handleTilePress(tile)}
-              isDark={isDark}
-              theme={theme}
-              phase={phase}
-              selectedBombs={selectedBombs}
-              selectedHeart={selectedHeart}
-              index={idx}
+        {phase === "setup" && (
+          <TouchableOpacity
+            style={[styles.readyButton, { backgroundColor: theme.primary }]}
+            onPress={confirmSetup}
+          >
+            <Text style={styles.readyText}>READY</Text>
+          </TouchableOpacity>
+        )}
+
+        {phase === "waiting" && (
+          <View style={{ alignItems: "center" }}>
+            <ActivityIndicator
+              size="large"
+              color={theme.primary}
+              style={{ marginTop: 20 }}
             />
-          ))}
+            {/* DEBUG INFO: Helps user/dev see why it's waiting */}
+            <Text style={{ marginTop: 20, color: theme.text, fontSize: 12 }}>
+              Waiting for other player...
+            </Text>
+            <Text style={{ marginTop: 5, color: "#888", fontSize: 10 }}>
+              DEBUG: {roomCode}
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+
+      {/* WINNER MODAL */}
+      <Modal visible={!!winner} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.winnerText, { color: theme.text }]}>
+              Game Won By
+            </Text>
+            <Text style={[styles.winnerName, { color: theme.primary }]}>
+              {winner}
+            </Text>
+            <TouchableOpacity
+              style={[styles.homeButton, { backgroundColor: theme.primary }]}
+              onPress={() => navigation.popToTop()}
+            >
+              <Text style={styles.homeButtonText}>Back to Home</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.footer}>
-        {phase === "setup_bombs" && selectedBombs.length === BOMBS_COUNT && (
-          <TouchableOpacity
-            style={[styles.mainButton, { backgroundColor: theme.primary }]}
-            onPress={() => setPhase("setup_heart")}
-          >
-            <Text style={styles.mainButtonText}>Confirm Bombs</Text>
-            <Ionicons
-              name="arrow-forward"
-              size={20}
-              color="#FFF"
-              style={{ marginLeft: 8 }}
-            />
-          </TouchableOpacity>
-        )}
-        {phase === "setup_heart" && selectedHeart !== null && (
-          <TouchableOpacity
-            style={[styles.mainButton, { backgroundColor: "#34C759" }]}
-            onPress={startCustomGame}
-          >
-            <Text style={styles.mainButtonText}>Start Game</Text>
-            <Ionicons
-              name="play"
-              size={20}
-              color="#FFF"
-              style={{ marginLeft: 8 }}
-            />
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {phase === "game_won" && (
-        <ConfettiCannon
-          count={200}
-          origin={{ x: screenWidth / 2, y: -50 }}
-          fadeOut
-        />
-      )}
-
-      {(phase === "game_won" || phase === "game_over") && (
-        <ResultOverlay
-          phase={phase}
-          score={score}
-          maxCombo={maxCombo}
-          theme={theme}
-          isDark={isDark}
-          onReset={isCustomMode ? startSetup : initializeRandomGame}
-        />
-      )}
+        {winner && <ConfettiCannon count={200} origin={{ x: -10, y: 0 }} />}
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", paddingTop: 40 },
-  gridCard: {
-    padding: 10,
-    borderRadius: 24,
-    elevation: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-  },
-  grid: {
-    width: screenWidth - 20,
+  container: { flex: 1, paddingTop: 60 },
+  hud: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-  },
-  footer: { marginTop: 20, width: "100%", alignItems: "center" },
-  mainButton: {
-    flexDirection: "row",
-    paddingHorizontal: 35,
-    paddingVertical: 16,
-    borderRadius: 35,
-    elevation: 6,
+    justifyContent: "space-between",
     alignItems: "center",
-  },
-  mainButtonText: { color: "#FFF", fontSize: 18, fontWeight: "800" },
-  opponentSection: {
-    width: "90%",
-    alignItems: "center",
+    paddingHorizontal: 20,
     marginBottom: 10,
+    height: 50,
+  },
+  playerStats: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  statsText: {
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  turnBadge: {
+    backgroundColor: "#EEE",
+    paddingHorizontal: 15,
+    paddingVertical: 5,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "#DDD",
+  },
+  turnText: {
+    fontWeight: "900",
+    fontSize: 14,
+  },
+  scrollContent: {
+    alignItems: "center",
+    paddingBottom: 50,
   },
   sectionTitle: {
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2,
-    marginBottom: 5,
+    fontSize: 18,
+    fontWeight: "bold",
+    marginVertical: 10,
+    opacity: 0.7,
   },
-  opponentGridMini: {
+  gridContainer: {
+    backgroundColor: "rgba(0,0,0,0.05)",
+    padding: 10,
+    borderRadius: 20,
+  },
+  grid: {
+    width: screenWidth - 40,
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    width: "100%",
-    opacity: 0.8,
+  },
+  placeholder: {
+    width: screenWidth - 40,
+    height: screenWidth - 40,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  divider: {
+    width: "80%",
+    height: 2,
+    backgroundColor: "#DDD",
+    marginVertical: 20,
+  },
+  readyButton: {
+    marginTop: 20,
+    paddingHorizontal: 40,
+    paddingVertical: 15,
+    borderRadius: 30,
+    elevation: 5,
+  },
+  readyText: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 18,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.8)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    width: "80%",
+    padding: 30,
+    borderRadius: 20,
+    alignItems: "center",
+    elevation: 10,
+  },
+  winnerText: {
+    fontSize: 20,
+    marginBottom: 10,
+  },
+  winnerName: {
+    fontSize: 32,
+    fontWeight: "900",
+    marginBottom: 30,
+  },
+  homeButton: {
+    paddingHorizontal: 30,
+    paddingVertical: 12,
+    borderRadius: 25,
+  },
+  homeButtonText: {
+    color: "white",
+    fontWeight: "bold",
+  },
+  debugContainer: {
+    padding: 10,
+    backgroundColor: "rgba(0,0,0,0.1)",
+    marginVertical: 10,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  debugText: {
+    fontSize: 12,
+    marginBottom: 5,
+  },
+  debugButton: {
+    padding: 5,
+    borderRadius: 5,
+  },
+  debugButtonText: {
+    color: "white",
+    fontSize: 10,
   },
 });
-
-const miniTileSize = (screenWidth * 0.45) / 4;

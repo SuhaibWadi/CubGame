@@ -9,10 +9,7 @@ import { GamePhase } from "./types";
 
 interface GameHeaderProps {
   phase: GamePhase;
-  isOnlineMode: boolean;
-  isMyTurn: boolean;
   lives: number;
-  opponentLives: number;
   score: number;
   combo: number;
   theme: any;
@@ -20,14 +17,12 @@ interface GameHeaderProps {
   animatedHeartStyle: any;
   selectedBombsLength: number;
   bombsCount: number;
+  heartsCount: number;
 }
 
 export const GameHeader = ({
   phase,
-  isOnlineMode,
-  isMyTurn,
   lives,
-  opponentLives,
   score,
   combo,
   theme,
@@ -35,9 +30,10 @@ export const GameHeader = ({
   animatedHeartStyle,
   selectedBombsLength,
   bombsCount,
+  heartsCount,
 }: GameHeaderProps) => {
   const { profile } = useGameStore();
-  const isSetup = phase === "setup_bombs" || phase === "setup_heart";
+  const isSetup = phase === "setup_bombs";
 
   if (isSetup) {
     return (
@@ -47,9 +43,11 @@ export const GameHeader = ({
             <Text style={styles.setupBadgeText}>BATTLE PREP</Text>
           </View>
           <Text style={[styles.setupText, { color: theme.text }]}>
-            {phase === "setup_bombs"
+            {selectedBombsLength < bombsCount
               ? `PLACE ${bombsCount} MINES (${selectedBombsLength}/${bombsCount})`
-              : "READY THE HEART"}
+              : heartsCount < 1
+                ? "READY THE HEART"
+                : "SETUP COMPLETE"}
           </Text>
         </View>
       </View>
@@ -79,58 +77,45 @@ export const GameHeader = ({
             </View>
             <View>
               <Text style={[styles.scoreLabel, { color: theme.primary }]}>
-                {isOnlineMode ? "YOUR HP" : "SCORE"}
+                SCORE
               </Text>
               <Text style={[styles.scoreValue, { color: theme.text }]}>
-                {isOnlineMode ? lives : Math.floor(score).toLocaleString()}
+                {Math.floor(score).toLocaleString()}
               </Text>
             </View>
           </View>
         </View>
 
         <View style={styles.centerInfo}>
-          {isOnlineMode ? (
-            <View
-              style={[
-                styles.turnIndicator,
-                { backgroundColor: isMyTurn ? theme.primary : "#3A3A3C" },
-              ]}
-            >
-              <Text style={styles.turnText}>
-                {isMyTurn ? "STRIKE NOW" : "OPPONENT'S MOVE"}
-              </Text>
-            </View>
-          ) : (
-            <Animated.View
-              style={[
-                styles.livesContainer,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(255,255,255,0.05)"
-                    : "rgba(0,0,0,0.05)",
-                },
-                animatedHeartStyle,
-              ]}
-            >
-              {[...Array(Math.max(lives, 3))].map((_, i) => (
-                <Ionicons
-                  key={i}
-                  name={i < lives ? "heart" : "heart-outline"}
-                  size={24}
-                  color={theme.primary}
-                  style={{ marginHorizontal: 2 }}
-                />
-              ))}
-            </Animated.View>
-          )}
+          <Animated.View
+            style={[
+              styles.livesContainer,
+              {
+                backgroundColor: isDark
+                  ? "rgba(255,255,255,0.05)"
+                  : "rgba(0,0,0,0.05)",
+              },
+              animatedHeartStyle,
+            ]}
+          >
+            {[...Array(Math.max(lives, 3))].map((_, i) => (
+              <Ionicons
+                key={i}
+                name={i < lives ? "heart" : "heart-outline"}
+                size={24}
+                color={theme.primary}
+                style={{ marginHorizontal: 2 }}
+              />
+            ))}
+          </Animated.View>
         </View>
 
         <View style={styles.scoreContainer}>
           <Text style={[styles.scoreLabel, { color: theme.secondary }]}>
-            {isOnlineMode ? "ENEMY HP" : "COMBO"}
+            COMBO
           </Text>
           <Text style={[styles.scoreValue, { color: theme.text }]}>
-            {isOnlineMode ? opponentLives : `x${combo.toFixed(1)}`}
+            {`x${combo.toFixed(1)}`}
           </Text>
         </View>
       </View>

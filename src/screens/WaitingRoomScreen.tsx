@@ -1,266 +1,169 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import React, { useCallback, useEffect, useState } from "react";
+import * as Clipboard from "expo-clipboard";
+import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
+  Alert,
   Share,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
-import { Tile } from "../components/game/types";
-import { PlayerItem } from "../components/multiplayer/PlayerItem";
-import { multiplayerService } from "../services/multiplayerService";
-import { useGameStore } from "../store/gameStore";
+import { multiplayerService, RoomData } from "../services/multiplayerService";
 import { useTheme } from "../theme/ThemeContext";
 
-const GRID_SIZE = 4;
-const TOTAL_TILES = GRID_SIZE * GRID_SIZE;
-const BOMBS_COUNT = 5;
-const HEARTS_COUNT = 1;
-
 export default function WaitingRoomScreen() {
+  const { theme, isDark } = useTheme();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const { theme, isDark } = useTheme();
-  const { profile } = useGameStore();
 
-  const { isHost, roomCode: joinCode } = route.params;
-  const [roomCode, setRoomCode] = useState(joinCode || "");
-  const [status, setStatus] = useState("Connecting to Firebase...");
-  const [opponent, setOpponent] = useState<any>(null);
+  const { roomCode, playerId, isHost } = route.params || {};
 
-  const generateBoard = useCallback(() => {
-    const tiles: Tile[] = Array.from({ length: TOTAL_TILES }, (_, i) => ({
-      id: i,
-      type: "safe",
-      flipped: false,
-    }));
-
-    let bombsPlaced = 0;
-    while (bombsPlaced < BOMBS_COUNT) {
-      const idx = Math.floor(Math.random() * TOTAL_TILES);
-      if (tiles[idx].type === "safe") {
-        tiles[idx].type = "bomb";
-        bombsPlaced++;
-      }
-    }
-
-    let heartsPlaced = 0;
-    while (heartsPlaced < HEARTS_COUNT) {
-      const idx = Math.floor(Math.random() * TOTAL_TILES);
-      if (tiles[idx].type === "safe") {
-        tiles[idx].type = "heart";
-        heartsPlaced++;
-      }
-    }
-    return tiles;
-  }, []);
-
-  const handleStartGame = async () => {
-    if (!roomCode) return;
-    const hostBoard = generateBoard();
-    const opponentBoard = generateBoard();
-    await multiplayerService.startGame(roomCode, { hostBoard, opponentBoard });
-    navigation.navigate("Game", {
-      mode: "online",
-      myBoard: hostBoard,
-      opponentBoard: opponentBoard,
-      isHost: true,
-      roomCode,
-      opponentProfile: opponent,
-    });
-  };
+  const [roomData, setRoomData] = useState<RoomData | null>(null);
+  const [status, setStatus] = useState("Waiting for opponent...");
 
   useEffect(() => {
-    const playerData = {
-      name: profile.name,
-      avatar: profile.avatar,
-      handle: profile.handle,
-    };
+    if (!roomCode) {
+      Alert.alert("Error", "No room code provided");
+      navigation.goBack();
+      return;
+    }
 
-    const setupMultiplayer = async () => {
-      try {
-        if (isHost) {
-          const code = await multiplayerService.createRoom(playerData);
-          setRoomCode(code);
-          setStatus("Room created! Waiting for opponent...");
+    // Subscribe to room updates
+    const unsubscribe = multiplayerService.subscribeToRoom(roomCode, (room) => {
+      console.log("Room update:", room);
+      setRoomData(room);
 
-          multiplayerService.onOpponentJoined(code, (opponentProfile) => {
-            setOpponent(opponentProfile);
-            setStatus("Opponent ready! You can start the battle.");
+      if (room.status === "playing" || (room.opponent_id && room.host_id)) {
+        // Game is ready!
+        // We add a slight delay so the user sees "Connected!"
+        setStatus("Opponent Connected! Starting...");
+        setTimeout(() => {
+          navigation.replace("Game", {
+            mode: "online",
+            roomCode,
+            playerId,
+            isHost: room.host_id === playerId,
+            opponentId:
+              room.host_id === playerId ? room.opponent_id : room.host_id,
           });
-        } else {
-          const result = await multiplayerService.joinRoom(
-            joinCode,
-            playerData,
-          );
-          if (result.success) {
-            setOpponent(result.host);
-            setStatus("Joined! Waiting for Host to start...");
-
-            multiplayerService.onGameStarted(joinCode, (gameData) => {
-              navigation.navigate("Game", {
-                mode: "online",
-                myBoard: gameData.opponentBoard, // We are opponent, so opponentBoard is our board
-                opponentBoard: gameData.hostBoard,
-                isHost: false,
-                roomCode: joinCode,
-                opponentProfile: result.host,
-              });
-            });
-          } else {
-            setStatus("Error: Room not found or full.");
-          }
-        }
-      } catch (error) {
-        console.error(error);
-        setStatus("Firebase Error: Check your connection.");
+        }, 1500);
       }
-    };
-
-    setupMultiplayer();
+    });
 
     return () => {
-      if (roomCode) multiplayerService.cleanup(roomCode);
+      unsubscribe();
     };
-  }, [navigation, isHost, joinCode]);
+  }, [roomCode, playerId, navigation]);
 
-  const handleShare = async () => {
+  const copyCode = async () => {
+    await Clipboard.setStringAsync(roomCode);
+  };
+
+  const shareCode = async () => {
     try {
       await Share.share({
-        message: `Join my Cub Blast battle! Room Code: ${roomCode}`,
+        message: `Join my Cub Blast game! Room Code: ${roomCode}`,
       });
-    } catch (error: any) {
-      console.log(error.message);
+    } catch (error) {
+      console.log(error);
     }
   };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>Battle Lobby</Text>
-        <View
-          style={[
-            styles.codeBox,
-            { backgroundColor: isDark ? "#1C1C1E" : "#F2F2F7" },
-          ]}
-        >
-          <Text style={[styles.codeLabel, { color: isDark ? "#888" : "#666" }]}>
-            BATTLE CODE
-          </Text>
-          <Text style={[styles.codeText, { color: theme.primary }]}>
-            {roomCode || "------"}
-          </Text>
-          <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
-            <Ionicons name="share-outline" size={20} color={theme.primary} />
-            <Text style={[styles.shareText, { color: theme.primary }]}>
-              Invite Opponent
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      <View style={styles.card}>
+        <Text style={[styles.header, { color: theme.text }]}>Room Code</Text>
 
-      <View style={styles.playersList}>
-        <PlayerItem
-          name={profile.name}
-          status="Ready"
-          isReady={true}
-          isConnecting={false}
-          isDark={isDark}
-          theme={theme}
-          isMaster={isHost}
-          avatar={profile.avatar}
-        />
+        <TouchableOpacity style={styles.codeContainer} onPress={copyCode}>
+          <Text style={styles.code}>{roomCode}</Text>
+          <Ionicons
+            name="copy-outline"
+            size={24}
+            color={theme.text}
+            style={{ marginLeft: 10 }}
+          />
+        </TouchableOpacity>
 
-        <PlayerItem
-          name={opponent ? opponent.name : "Waiting..."}
-          status={opponent ? "Ready" : "Searching..."}
-          isReady={!!opponent}
-          isConnecting={!opponent}
-          isDark={isDark}
-          theme={theme}
-          isMaster={!isHost}
-          avatar={opponent ? opponent.avatar : null}
-        />
-      </View>
-
-      <View style={styles.footer}>
-        {isHost && opponent && (
-          <TouchableOpacity
-            style={[styles.startButton, { backgroundColor: theme.primary }]}
-            onPress={handleStartGame}
-          >
-            <Text style={styles.startText}>START BATTLE</Text>
-          </TouchableOpacity>
-        )}
-        <ActivityIndicator
-          color={theme.primary}
-          size="large"
-          style={{ marginBottom: 10 }}
-        />
-        <Text style={[styles.statusText, { color: isDark ? "#AAA" : "#666" }]}>
+        <Text style={[styles.subtext, { color: isDark ? "#CCC" : "#666" }]}>
           {status}
         </Text>
+
         <TouchableOpacity
-          style={styles.cancelButton}
-          onPress={() => navigation.goBack()}
+          style={[styles.shareButton, { backgroundColor: theme.primary }]}
+          onPress={shareCode}
         >
-          <Text style={styles.cancelText}>Leave Battle</Text>
+          <Ionicons name="share-social" size={24} color="#FFF" />
+          <Text style={styles.shareButtonText}>Share Code</Text>
         </TouchableOpacity>
       </View>
+
+      <TouchableOpacity
+        style={styles.cancelButton}
+        onPress={() => navigation.goBack()}
+      >
+        <Text style={{ color: "red", fontSize: 16 }}>Cancel Return</Text>
+      </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 30 },
-  header: { alignItems: "center", marginTop: 20 },
-  title: { fontSize: 24, fontWeight: "900", marginBottom: 30 },
-  codeBox: {
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  card: {
     width: "100%",
-    padding: 25,
+    maxWidth: 350,
+    padding: 30,
     borderRadius: 24,
+    backgroundColor: "rgba(120,120,120,0.1)",
     alignItems: "center",
   },
-  codeLabel: {
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1,
-    marginBottom: 10,
+  header: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 20,
   },
-  codeText: {
+  codeContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.05)",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 15,
+    marginBottom: 30,
+  },
+  code: {
     fontSize: 48,
     fontWeight: "900",
-    letterSpacing: 8,
-    marginBottom: 20,
+    letterSpacing: 5,
+    color: "#0B845C",
+  },
+  subtext: {
+    fontSize: 16,
+    marginBottom: 30,
+    textAlign: "center",
   },
   shareButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    backgroundColor: "rgba(52, 120, 246, 0.1)",
-    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    gap: 10,
   },
-  shareText: { marginLeft: 8, fontWeight: "700" },
-  playersList: { marginTop: 50, flex: 1 },
-  footer: { alignItems: "center", paddingBottom: 40 },
-  statusText: { marginTop: 15, fontSize: 15, fontWeight: "600" },
-  startButton: {
-    width: "100%",
-    paddingVertical: 18,
-    borderRadius: 20,
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  startText: {
+  shareButtonText: {
     color: "#FFF",
-    fontSize: 14,
-    fontWeight: "900",
-    letterSpacing: 2,
+    fontWeight: "bold",
+    fontSize: 16,
   },
-  cancelButton: { marginTop: 30 },
-  cancelText: { color: "#FF3B30", fontWeight: "700" },
+  cancelButton: {
+    marginTop: 50,
+    padding: 15,
+  },
 });
