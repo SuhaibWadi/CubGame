@@ -10,6 +10,22 @@ export interface RoomData {
   winner: string | null;
 }
 
+// REAL-TIME BROADCAST EVENTS (Socket payloads)
+export type GameEvent =
+  | {
+      type: "attack";
+      payload: {
+        targetId: string;
+        tileIndex: number;
+        damage: number;
+        nextTurn: string;
+        version: number;
+      };
+    }
+  | { type: "start_game"; payload: { timestamp: number } }
+  | { type: "game_over"; payload: { winnerId: string } }
+  | { type: "play_again"; payload: { timestamp: number } };
+
 class MultiplayerService {
   /**
    * Generates a random 6-digit room code
@@ -335,6 +351,60 @@ class MultiplayerService {
     };
 
     await this.updateGameState(roomCode, newState);
+  }
+
+  // --- REAL TIME BROADCAST METHODS (SOCKETS) ---
+
+  /**
+   * Subscribe to LOW LATENCY Broadcast Channel
+   */
+  subscribeToBroadcast(roomCode: string, callback: (event: GameEvent) => void) {
+    console.log(`[Broadcast] Subscribing to room_game_${roomCode}`);
+    const channel = supabase.channel(`room_game_${roomCode}`, {
+      config: {
+        broadcast: { self: false }, // Don't receive own messages
+      },
+    });
+
+    channel
+      .on("broadcast", { event: "game_event" }, (payload) => {
+        console.log("⚡️ BROADCAST RECEIVED:", payload);
+        if (payload.payload) {
+          callback(payload.payload as GameEvent);
+        }
+      })
+      .subscribe((status) => {
+        console.log(`[Broadcast] Status for ${roomCode}:`, status);
+      });
+
+    return () => {
+      console.log("[Broadcast] Unsubscribing...");
+      supabase.removeChannel(channel);
+    };
+  }
+
+  /**
+   * Send a LOW LATENCY Broadcast Message
+   */
+  async sendGameplayEvent(roomCode: string, event: GameEvent) {
+    console.log("⚡️ SENDING BROADCAST:", event.type);
+
+    // We create a transient channel reference to send.
+    // In Supabase, if we are already subscribed to this topic elsewhere (in GameScreen),
+    // this send will use the existing connection.
+    const channel = supabase.channel(`room_game_${roomCode}`);
+
+    // Ensure we are attached before sending
+    await channel.subscribe();
+
+    await channel.send({
+      type: "broadcast",
+      event: "game_event",
+      payload: event,
+    });
+
+    // We don't unsubscribe here immediately to keep the socket alive if needed,
+    // or we rely on the main listener.
   }
 }
 

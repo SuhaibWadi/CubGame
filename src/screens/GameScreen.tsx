@@ -68,6 +68,9 @@ export default function GameScreen() {
   const [currentTurn, setCurrentTurn] = useState<string>("");
   const [winner, setWinner] = useState<string | null>(null);
 
+  // Version Control to prevent Race Conditions (Stale Data)
+  const lastProcessedVersion = React.useRef<number>(0);
+
   // --- Sound Players ---
   const flipPlayer = useAudioPlayer(SOUNDS.flip);
   const bombPlayer = useAudioPlayer(SOUNDS.bomb);
@@ -116,6 +119,55 @@ export default function GameScreen() {
   // --- Online Logic ---
   useEffect(() => {
     if (!isOnlineMode || !roomCode) return;
+
+    // 1. Subscribe to BROADCAST (Real-time)
+    const unsubscribeBroadcast = multiplayerService.subscribeToBroadcast(
+      roomCode,
+      (event) => {
+        if (event.type === "attack") {
+          const { targetId, tileIndex, damage, nextTurn } = event.payload;
+
+          // If I am the target (My Board was hit)
+          if (targetId === playerId) {
+            setMyGrid((prev) =>
+              prev.map((t, i) => {
+                if (i === tileIndex && !t.flipped) {
+                  if (damage > 0) playSound("bomb");
+                  else playSound("flip");
+                  return { ...t, flipped: true };
+                }
+                return t;
+              }),
+            );
+            if (damage > 0) {
+              setMyLives((prev) => Math.max(0, prev - damage));
+            }
+          }
+
+          // Switch Turn
+          setCurrentTurn(nextTurn);
+
+          // Update Version (Assume broadcast is latest)
+          if (event.payload.version) {
+            lastProcessedVersion.current = Math.max(
+              lastProcessedVersion.current,
+              event.payload.version,
+            );
+          } else {
+            // If version missing (legacy), just bump it?
+            // No, let's trust it if we have it.
+          }
+
+          // Check Game Over (Local check based on event)
+          if (
+            myLives <= 0 ||
+            (targetId === playerId && damage > 0 && myLives - damage <= 0)
+          ) {
+            // Game over handles itself via state sync usually, but we can preempt
+          }
+        }
+      },
+    );
 
     const unsubscribe = multiplayerService.subscribeToRoom(roomCode, (room) => {
       console.log(
@@ -210,6 +262,7 @@ export default function GameScreen() {
 
     return () => {
       unsubscribe();
+      unsubscribeBroadcast();
     };
   }, [isOnlineMode, roomCode, playerId, isHost]);
 
@@ -318,42 +371,42 @@ export default function GameScreen() {
       playSound("flip");
     }
 
-    // 2. Sync to DB
+    // 2. Broadcast & Persist
     const targetId = opponentId;
 
     if (targetId) {
+      // A. Send Broadcast (Fast)
+      const nextVersion = lastProcessedVersion.current + 1;
+      lastProcessedVersion.current = nextVersion; // Optimistic update of version
+
+      multiplayerService.sendGameplayEvent(roomCode, {
+        type: "attack",
+        payload: {
+          targetId: targetId,
+          tileIndex: tile.id,
+          damage: tile.type === "bomb" ? 1 : 0,
+          nextTurn: targetId,
+          version: nextVersion,
+        },
+      });
+
+      // B. Optimistic Local Update
+      setCurrentTurn(targetId);
+
+      // C. Background Persistence (Slow)
       const revealed = newGrid.filter((t) => t.flipped).map((t) => t.id);
-
-      // Atomic Update: Update Board AND Switch Turn
-      // We read the latest room data inside the service usually, but here we construct the payload.
-      // To be safe, we should fetch-merge-write or trust our local calculation if we are the turn holder.
-      // Since we know it's our turn, we are the authority on the next state of the board.
-
-      try {
-        const room = await multiplayerService.getRoomData(roomCode);
-        if (room) {
-          const currentState = room.game_state;
-          const nextState = {
-            ...currentState,
-            [targetId]: {
-              ...currentState[targetId],
-              lives: newOppLives,
-              revealedIndexes: revealed,
-            },
-            turn: targetId, // Switch turn IMMEDIATELY in the same update
-            version: (currentState.version || 0) + 1,
-          };
-
-          await multiplayerService.updateGameState(roomCode, nextState);
-          setCurrentTurn(targetId); // Update local immediately
-        }
-      } catch (e) {
-        console.error("Failed to sync attack:", e);
-      }
+      multiplayerService
+        .handleAttack(roomCode, targetId, newOppLives, revealed, targetId)
+        .catch((e) =>
+          console.log(
+            "Persistence background error (harmless if broadcast worked)",
+            e,
+          ),
+        );
     }
   };
 
-  const syncGameState = async () => {
+  const syncGameState = useCallback(async () => {
     try {
       const room = await multiplayerService.getRoomData(roomCode);
       if (!room) return;
@@ -371,6 +424,21 @@ export default function GameScreen() {
         setPhase("game_over");
       } else if (room.status === "playing") {
         if (phase !== "playing") setPhase("playing");
+
+        // CHECK VERSION (Prevent Stale Data Revert)
+        const serverVersion = room.game_state.version || 0;
+        if (serverVersion < lastProcessedVersion.current) {
+          console.log(
+            "[Sync] Ignoring stale data. Server:",
+            serverVersion,
+            "Local:",
+            lastProcessedVersion.current,
+          );
+          return;
+        }
+        // If server is newer or equal, accept it.
+        // Equal is fine (confirmation).
+        lastProcessedVersion.current = serverVersion;
 
         // Sync Turn
         if (room.game_state.turn && room.game_state.turn !== currentTurn) {
@@ -394,7 +462,7 @@ export default function GameScreen() {
 
                 return {
                   ...t,
-                  id: i, // ensure ID consistency
+                  id: i,
                   type: serverType,
                   flipped: isFlipped,
                 };
@@ -410,7 +478,6 @@ export default function GameScreen() {
             setMyGrid((prev) =>
               prev.map((t, i) => {
                 const serverFlipped = myState.revealedIndexes.includes(i);
-                // For my board, we play sound if new flip detected (optional, but skip for sync fn)
                 if (serverFlipped && !t.flipped) {
                   return { ...t, flipped: true };
                 }
@@ -423,7 +490,7 @@ export default function GameScreen() {
     } catch (e) {
       // console.log("Sync failed:", e);
     }
-  };
+  }, [roomCode, playerId, currentTurn, isHost, phase]);
 
   // --- Polling Fallback ---
   useEffect(() => {
@@ -437,10 +504,26 @@ export default function GameScreen() {
     }, 2000); // Poll every 2 seconds
 
     return () => clearInterval(interval);
-  }, [phase, roomCode, isHost]);
+  }, [syncGameState]); // Added syncGameState to deps to prevent stale closures
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
+      {/* DEBUG OVERLAY (Temporary for Turn Fix) */}
+      <View
+        style={{
+          position: "absolute",
+          top: 40,
+          left: 0,
+          right: 0,
+          zIndex: 999,
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ fontSize: 10, color: "gray" }}>
+          MyID: {playerId?.substring(0, 4)} | Turn:{" "}
+          {currentTurn?.substring(0, 4)} | Status: {phase}
+        </Text>
+      </View>
       {/* --- HUD --- */}
       <View style={styles.hud}>
         <View style={styles.playerStats}>
