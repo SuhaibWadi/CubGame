@@ -14,6 +14,7 @@ import { UpdateOverlay } from "./components/common/UpdateOverlay";
 import GameScreen from "./screens/GameScreen";
 import HomeScreen from "./screens/HomeScreen";
 import LocalDuelScreen from "./screens/LocalDuelScreen";
+import MemoryGameScreen from "./screens/MemoryGameScreen";
 import OnlineMenuScreen from "./screens/OnlineMenuScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import SettingsScreen from "./screens/SettingsScreen";
@@ -35,6 +36,8 @@ function TabNavigator() {
             iconName = focused ? "game-controller" : "game-controller-outline";
           } else if (route.name === "Profile") {
             iconName = focused ? "trophy" : "trophy-outline";
+          } else if (route.name === "Memory") {
+            iconName = focused ? "grid" : "grid-outline";
           } else if (route.name === "Settings") {
             iconName = focused ? "options" : "options-outline";
           }
@@ -67,6 +70,7 @@ function TabNavigator() {
       })}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Memory" component={MemoryGameScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
       <Tab.Screen name="Settings" component={SettingsScreen} />
     </Tab.Navigator>
