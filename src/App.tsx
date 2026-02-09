@@ -13,6 +13,7 @@ SplashScreen.preventAutoHideAsync();
 import { UpdateOverlay } from "./components/common/UpdateOverlay";
 import GameScreen from "./screens/GameScreen";
 import HomeScreen from "./screens/HomeScreen";
+import LocalDuelScreen from "./screens/LocalDuelScreen";
 import OnlineMenuScreen from "./screens/OnlineMenuScreen";
 import ProfileScreen from "./screens/ProfileScreen";
 import SettingsScreen from "./screens/SettingsScreen";
@@ -112,6 +113,11 @@ function Navigation() {
             headerTitle: "Matchmaking",
             headerBackTitle: "Exit",
           }}
+        />
+        <Stack.Screen
+          name="LocalDuel"
+          component={LocalDuelScreen}
+          options={{ headerShown: false }}
         />
       </Stack.Navigator>
     </NavigationContainer>

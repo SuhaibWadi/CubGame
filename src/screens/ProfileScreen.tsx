@@ -1,12 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Modal,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -20,6 +21,14 @@ export default function ProfileScreen() {
   const { theme, isDark } = useTheme();
   const { profile, stats, updateProfile } = useGameStore();
   const [modalVisible, setModalVisible] = useState(false);
+  const [wipModalVisible, setWipModalVisible] = useState(false);
+  const [tempName, setTempName] = useState(profile.name);
+
+  useEffect(() => {
+    if (modalVisible) {
+      setTempName(profile.name);
+    }
+  }, [modalVisible, profile.name]);
 
   const StatItem = ({ label, value, icon, color }: any) => (
     <View
@@ -40,8 +49,11 @@ export default function ProfileScreen() {
     </View>
   );
 
-  const handleSelectAvatar = (avatarKey: string) => {
-    updateProfile({ avatar: avatarKey });
+  const handleSaveProfile = (avatarKey?: string) => {
+    updateProfile({
+      name: tempName,
+      avatar: avatarKey || profile.avatar,
+    });
     setModalVisible(false);
   };
 
@@ -76,7 +88,7 @@ export default function ProfileScreen() {
                 style={styles.editBadge}
                 onPress={() => setModalVisible(true)}
               >
-                <Ionicons name="camera" size={16} color="#FFF" />
+                <Ionicons name="pencil" size={16} color="#FFF" />
               </TouchableOpacity>
             </View>
 
@@ -177,6 +189,7 @@ export default function ProfileScreen() {
               styles.logoutButton,
               { borderColor: "#FF3B30", borderWidth: 1 },
             ]}
+            onPress={() => setWipModalVisible(true)}
           >
             <Text style={styles.logoutText}>SIGN OUT</Text>
           </TouchableOpacity>
@@ -199,16 +212,60 @@ export default function ProfileScreen() {
           >
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>
-                CHOOSE YOUR HERO
+                EDIT PROFILE
               </Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Ionicons
-                  name="close-circle"
-                  size={28}
-                  color={isDark ? "#444" : "#CCC"}
-                />
+              <TouchableOpacity onPress={() => handleSaveProfile()}>
+                <Text
+                  style={{
+                    color: theme.primary,
+                    fontWeight: "bold",
+                    fontSize: 16,
+                  }}
+                >
+                  SAVE
+                </Text>
               </TouchableOpacity>
             </View>
+
+            <View style={{ marginBottom: 20 }}>
+              <Text
+                style={{
+                  color: isDark ? "#888" : "#666",
+                  marginBottom: 5,
+                  fontSize: 12,
+                  fontWeight: "bold",
+                }}
+              >
+                DISPLAY NAME
+              </Text>
+              <TextInput
+                style={{
+                  backgroundColor: isDark
+                    ? "rgba(255,255,255,0.05)"
+                    : "#F0F0F0",
+                  padding: 15,
+                  borderRadius: 15,
+                  color: theme.text,
+                  fontSize: 16,
+                  fontWeight: "bold",
+                }}
+                value={tempName}
+                onChangeText={setTempName}
+                placeholder="Enter your name"
+                placeholderTextColor="#999"
+              />
+            </View>
+
+            <Text
+              style={{
+                color: isDark ? "#888" : "#666",
+                marginBottom: 10,
+                fontSize: 12,
+                fontWeight: "bold",
+              }}
+            >
+              CHOOSE AVATAR
+            </Text>
 
             <View style={styles.avatarGrid}>
               {AVATAR_LIST.map((key) => (
@@ -221,7 +278,7 @@ export default function ProfileScreen() {
                       borderWidth: 3,
                     },
                   ]}
-                  onPress={() => handleSelectAvatar(key)}
+                  onPress={() => handleSaveProfile(key)}
                 >
                   <Image
                     source={AVATAR_MAP[key]}
@@ -231,6 +288,39 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Work In Progress Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={wipModalVisible}
+        onRequestClose={() => setWipModalVisible(false)}
+      >
+        <View style={styles.modalOverlayCenter}>
+          <View
+            style={[
+              styles.wipContent,
+              { backgroundColor: isDark ? "#1C1C1E" : "#FFF" },
+            ]}
+          >
+            <View style={styles.wipIconContainer}>
+              <Ionicons name="construct" size={40} color="#FF9500" />
+            </View>
+            <Text style={[styles.wipTitle, { color: theme.text }]}>
+              Work in Progress
+            </Text>
+            <Text style={[styles.wipText, { color: isDark ? "#CCC" : "#666" }]}>
+              We are still working on it! 🛠️
+            </Text>
+            <TouchableOpacity
+              style={[styles.wipButton, { backgroundColor: theme.primary }]}
+              onPress={() => setWipModalVisible(false)}
+            >
+              <Text style={styles.wipButtonText}>GOT IT</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -423,5 +513,54 @@ const styles = StyleSheet.create({
   optionImage: {
     width: "100%",
     height: "100%",
+  },
+  modalOverlayCenter: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  wipContent: {
+    width: "80%",
+    padding: 30,
+    borderRadius: 24,
+    alignItems: "center",
+    elevation: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+  },
+  wipIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "rgba(255, 149, 0, 0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+  wipTitle: {
+    fontSize: 20,
+    fontWeight: "900",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  wipText: {
+    fontSize: 16,
+    textAlign: "center",
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  wipButton: {
+    paddingHorizontal: 40,
+    paddingVertical: 14,
+    borderRadius: 20,
+  },
+  wipButtonText: {
+    color: "#FFF",
+    fontWeight: "bold",
+    fontSize: 14,
+    letterSpacing: 1,
   },
 });

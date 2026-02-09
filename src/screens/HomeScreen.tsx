@@ -197,7 +197,7 @@ export default function HomeScreen() {
             CUB{"\n"}BLAST
           </Text>
           <Text style={[styles.subtitle, { color: isDark ? "#888" : "#666" }]}>
-            Choose your arena
+            Yes Cub not Cup Don't Judge Me :)
           </Text>
         </View>
 
@@ -216,7 +216,7 @@ export default function HomeScreen() {
             icon="people"
             colors={["#34C759", "#00C7BE"]}
             index={1}
-            onPress={() => navigation.navigate("Game", { mode: "custom" })}
+            onPress={() => navigation.navigate("LocalDuel")}
           />
           <GameModeCard
             title="Ranked Play"

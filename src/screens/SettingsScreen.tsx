@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import {
+  Modal,
   ScrollView,
   StyleSheet,
   Switch,
@@ -13,6 +14,8 @@ import { useTheme } from "../theme/ThemeContext";
 
 export default function SettingsScreen() {
   const { theme, toggleTheme, isDark } = useTheme();
+  const [showPrivacy, setShowPrivacy] = React.useState(false);
+  const [showTerms, setShowTerms] = React.useState(false);
 
   const SettingItem = ({
     icon,
@@ -94,7 +97,10 @@ export default function SettingsScreen() {
         >
           SYSTEM
         </Text>
-        <TouchableOpacity activeOpacity={0.7}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => setShowPrivacy(true)}
+        >
           <SettingItem
             icon="shield-checkmark"
             label="Privacy Policy"
@@ -104,7 +110,10 @@ export default function SettingsScreen() {
             }
           />
         </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.7}>
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => setShowTerms(true)}
+        >
           <SettingItem
             icon="document-text"
             label="Terms of Service"
@@ -124,6 +133,58 @@ export default function SettingsScreen() {
           MADE WITH ❤️ BY SUHAIB WADI
         </Text>
       </View>
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showPrivacy}
+        onRequestClose={() => setShowPrivacy(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Ionicons name="finger-print" size={50} color={theme.primary} />
+            <Text style={[styles.modalTitle, { color: theme.text }]}>
+              TOP SECRET
+            </Text>
+            <Text style={[styles.modalText, { color: theme.text }]}>
+              Do not share this app with anyone yet! 🤫{"\n"}
+              We are still working on it.
+            </Text>
+            <TouchableOpacity
+              style={[styles.modalButton, { backgroundColor: theme.primary }]}
+              onPress={() => setShowPrivacy(false)}
+            >
+              <Text style={styles.modalButtonText}>I PROMISE</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showTerms}
+        onRequestClose={() => setShowTerms(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Ionicons name="happy" size={50} color={theme.primary} />
+            <Text style={[styles.modalTitle, { color: theme.text }]}>
+              TERMS OF FUN
+            </Text>
+            <Text style={[styles.modalText, { color: theme.text }]}>
+              By using this app you agree that Suhaib is the coolest developer
+              ever. 😎
+            </Text>
+            <TouchableOpacity
+              style={[styles.modalButton, { backgroundColor: theme.primary }]}
+              onPress={() => setShowTerms(false)}
+            >
+              <Text style={styles.modalButtonText}>AGREED 100%</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -183,5 +244,41 @@ const styles = StyleSheet.create({
     fontSize: ms(10),
     fontWeight: "800",
     letterSpacing: 1,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    width: "80%",
+    padding: 30,
+    borderRadius: 25,
+    alignItems: "center",
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: "900",
+    marginTop: 20,
+    marginBottom: 10,
+    letterSpacing: 1,
+  },
+  modalText: {
+    fontSize: 16,
+    textAlign: "center",
+    opacity: 0.8,
+    marginBottom: 25,
+    lineHeight: 24,
+  },
+  modalButton: {
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 30,
+  },
+  modalButtonText: {
+    color: "#FFF",
+    fontWeight: "bold",
+    fontSize: 16,
   },
 });

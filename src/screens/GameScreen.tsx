@@ -21,6 +21,7 @@ import { Tile, TileType } from "../components/game/types";
 
 // Services & Store
 import { multiplayerService } from "../services/multiplayerService";
+import { useGameStore } from "../store/gameStore";
 import { useTheme } from "../theme/ThemeContext";
 
 const GRID_SIZE = 4;
@@ -29,10 +30,6 @@ const BOMBS_COUNT = 5;
 const HEARTS_COUNT = 1;
 
 const screenWidth = Dimensions.get("window").width;
-// Smaller tile size for better fit
-// GRID_SIZE = 4. 4 tiles + margins.
-// previous logic was auto.
-// Let's rely on passing size prop.
 
 const SOUNDS = {
   flip: "https://raw.githubusercontent.com/lucsn/scavenge-the-stars/master/assets/audio/sfx/click.mp3",
@@ -45,30 +42,36 @@ const SOUNDS = {
 export default function GameScreen() {
   const route = useRoute<any>();
   const navigation = useNavigation<any>();
-  const isOnlineMode = route.params?.mode === "online";
-  const { roomCode, playerId, isHost, opponentId } = route.params || {};
+
+  // Extract params
+  const {
+    mode = "random",
+    roomCode,
+    playerId: paramPlayerId,
+    isHost,
+    opponentId,
+  } = route.params || {};
+  const isOnlineMode = mode === "online";
+  const playerId = paramPlayerId || "You"; // Fallback for offline
 
   const { theme, isDark } = useTheme();
-  // We can use gameStore for offline stats, but for online logic we manage state locally
-  // to avoid conflicting with single player store.
+  const { addWin, addLoss } = useGameStore();
+
+  // Track if stats have been updated to prevent duplicates
+  const statsUpdated = React.useRef(false);
 
   // --- Game State ---
   const [phase, setPhase] = useState<
     "setup" | "waiting" | "playing" | "game_over"
   >("setup");
-
-  // My Board (Defending)
   const [myGrid, setMyGrid] = useState<Tile[]>([]);
   const [myLives, setMyLives] = useState(3);
-
-  // Opponent Board (Attacking)
   const [opponentGrid, setOpponentGrid] = useState<Tile[]>([]);
   const [opponentLives, setOpponentLives] = useState(3);
-
   const [currentTurn, setCurrentTurn] = useState<string>("");
   const [winner, setWinner] = useState<string | null>(null);
 
-  // Version Control to prevent Race Conditions (Stale Data)
+  // Version Control (Online Only)
   const lastProcessedVersion = React.useRef<number>(0);
 
   // --- Sound Players ---
@@ -88,8 +91,10 @@ export default function GameScreen() {
               : type === "heart"
                 ? heartPlayer
                 : winPlayer;
-        player?.seekTo(0);
-        player?.play();
+        if (player) {
+          player.seekTo(0);
+          player.play();
+        }
       } catch (e) {
         console.log(e);
       }
@@ -97,37 +102,84 @@ export default function GameScreen() {
     [flipPlayer, bombPlayer, heartPlayer, winPlayer],
   );
 
-  // --- Initialization ---
-  useEffect(() => {
-    // Initialize empty grids
-    const emptyGrid = Array.from({ length: TOTAL_TILES }, (_, i) => ({
+  // Helper: Generate Random Grid
+  const generateRandomGrid = () => {
+    const grid = Array.from({ length: TOTAL_TILES }, (_, i) => ({
       id: i,
       type: "safe" as TileType,
       flipped: false,
     }));
-    setMyGrid([...emptyGrid]);
-    setOpponentGrid([...emptyGrid]);
+
+    let placedBombs = 0;
+    while (placedBombs < BOMBS_COUNT) {
+      const idx = Math.floor(Math.random() * TOTAL_TILES);
+      if (grid[idx].type === "safe") {
+        grid[idx].type = "bomb";
+        placedBombs++;
+      }
+    }
+
+    let placedHearts = 0;
+    while (placedHearts < HEARTS_COUNT) {
+      const idx = Math.floor(Math.random() * TOTAL_TILES);
+      if (grid[idx].type === "safe") {
+        grid[idx].type = "heart";
+        placedHearts++;
+      }
+    }
+    return grid;
+  };
+
+  // --- Initialization ---
+  useEffect(() => {
+    statsUpdated.current = false;
+    setMyLives(3);
+    setOpponentLives(3);
+    setWinner(null);
 
     if (isOnlineMode) {
+      // Online: Wait for setup
+      const emptyGrid = Array.from({ length: TOTAL_TILES }, (_, i) => ({
+        id: i,
+        type: "safe" as TileType,
+        flipped: false,
+      }));
+      setMyGrid(emptyGrid);
+      setOpponentGrid(emptyGrid);
       setPhase("setup");
     } else {
-      // Fallback for offline (not the focus now but keep simple)
-      setPhase("setup"); // Or standard setup
+      // Offline Modes
+      if (mode === "random") {
+        // Bot Match: Both Random, Start Immediately
+        setMyGrid(generateRandomGrid());
+        setOpponentGrid(generateRandomGrid());
+        setPhase("playing");
+        setCurrentTurn(playerId);
+      } else {
+        // Custom / Duel: Manual Setup for Me, Random for Opponent (Bot)
+        const emptyGrid = Array.from({ length: TOTAL_TILES }, (_, i) => ({
+          id: i,
+          type: "safe" as TileType,
+          flipped: false,
+        }));
+        setMyGrid(emptyGrid);
+        setOpponentGrid(generateRandomGrid());
+        setPhase("setup");
+      }
     }
-  }, [isOnlineMode]);
+  }, [mode, roomCode, isOnlineMode, playerId]);
 
   // --- Online Logic ---
   useEffect(() => {
     if (!isOnlineMode || !roomCode) return;
 
-    // 1. Subscribe to BROADCAST (Real-time)
+    // 1. Subscribe to BROADCAST
     const unsubscribeBroadcast = multiplayerService.subscribeToBroadcast(
       roomCode,
       (event) => {
         if (event.type === "attack") {
           const { targetId, tileIndex, damage, nextTurn } = event.payload;
 
-          // If I am the target (My Board was hit)
           if (targetId === playerId) {
             setMyGrid((prev) =>
               prev.map((t, i) => {
@@ -144,77 +196,48 @@ export default function GameScreen() {
             }
           }
 
-          // Switch Turn
           setCurrentTurn(nextTurn);
 
-          // Update Version (Assume broadcast is latest)
           if (event.payload.version) {
             lastProcessedVersion.current = Math.max(
               lastProcessedVersion.current,
               event.payload.version,
             );
-          } else {
-            // If version missing (legacy), just bump it?
-            // No, let's trust it if we have it.
-          }
-
-          // Check Game Over (Local check based on event)
-          if (
-            myLives <= 0 ||
-            (targetId === playerId && damage > 0 && myLives - damage <= 0)
-          ) {
-            // Game over handles itself via state sync usually, but we can preempt
           }
         }
       },
     );
 
+    // 2. Subscribe to ROOM updates
     const unsubscribe = multiplayerService.subscribeToRoom(roomCode, (room) => {
-      console.log(
-        "[GameScreen] Subscription Update:",
-        room.status,
-        room.game_state?.version,
-      );
       // Game Started logic
       if (room.status === "playing") {
         setPhase((prevPhase) => {
-          // Only transition if we are not already playing
           if (prevPhase !== "playing" && prevPhase !== "game_over") {
-            // Initialize Opponent Board logic here?
-            // We need to do this OUTSIDE the state updater or use a separate synchronization effect.
-            // Ideally, we just setPhase here, and a separate useEffect handles 'playing' mount?
-            // Or we just do it here carefully.
-            // We can't access stale closures easily if we remove deps.
-            // But room data IS available here (payload).
             return "playing";
           }
           return prevPhase;
         });
 
-        // Load Opponent Board Data (always safe to overwrite if we are playing)
+        // Load Opponent Board Data
         const oppId = isHost ? room.opponent_id : room.host_id;
         if (oppId && room.game_state[oppId]?.boardConfig) {
-          // We should check if we already have it to avoid flicker?
-          // But this runs on every update.
-          // Actually, preventing re-set is good.
           setOpponentGrid((prev) => {
-            if (prev.length > 0 && prev[0].flipped === undefined) return prev; // already set?
-            // No, checking length is not enough.
-            // Let's just map it. React handles diffing.
+            // Only load if not already loaded to avoid overwrite?
+            // Actually safe to overwrite if we preserve flips, but here flips come from sync.
+            // We'll trust syncGameState for detailed updates.
+            if (prev.length > 0 && prev[0].type !== "safe") return prev; // optimization?
             return room.game_state[oppId].boardConfig.map((t: Tile) => ({
               ...t,
-              flipped: false, // Start hidden
+              flipped: false,
             }));
           });
         }
-
         if (room.game_state.turn) setCurrentTurn(room.game_state.turn);
       }
 
-      // Listening to Moves
+      // Live Sync
       if (room.status === "playing" || room.status === "game_over") {
-        if (room.game_state.turn) setCurrentTurn(room.game_state.turn);
-
         // Sync My Defending Board
         const myState = room.game_state[playerId];
         if (myState && myState.revealedIndexes) {
@@ -223,7 +246,7 @@ export default function GameScreen() {
               if (myState.revealedIndexes.includes(i) && !t.flipped) {
                 if (t.type === "bomb") playSound("bomb");
                 else playSound("flip");
-                return { ...t, flipped: true }; // This reveals the tile on My Board
+                return { ...t, flipped: true };
               }
               return t;
             }),
@@ -236,11 +259,9 @@ export default function GameScreen() {
         if (oppId && room.game_state[oppId]) {
           const oppState = room.game_state[oppId];
           setOpponentLives(oppState.lives);
-
           if (oppState.revealedIndexes) {
             setOpponentGrid((prev) =>
               prev.map((t, i) => {
-                // Determine if we need to reveal
                 const shouldFlip = oppState.revealedIndexes.includes(i);
                 if (shouldFlip && !t.flipped) {
                   return { ...t, flipped: true };
@@ -266,9 +287,20 @@ export default function GameScreen() {
     };
   }, [isOnlineMode, roomCode, playerId, isHost]);
 
-  // --- Handlers ---
+  // --- Stats Persistence ---
+  useEffect(() => {
+    if (winner && !statsUpdated.current) {
+      statsUpdated.current = true;
+      if (winner === "You") {
+        const score = 1000 + myLives * 500;
+        addWin(score, 1);
+      } else {
+        addLoss(200);
+      }
+    }
+  }, [winner, myLives, addWin, addLoss]);
 
-  // Setup Phase: Place Bombs/Hearts on MyGrid
+  // --- Handlers ---
   const handleSetupPress = (tile: Tile) => {
     const bombsCount = myGrid.filter((t) => t.type === "bomb").length;
     const heartCount = myGrid.filter((t) => t.type === "heart").length;
@@ -280,8 +312,12 @@ export default function GameScreen() {
           if (t.type === "safe") {
             if (bombsCount < BOMBS_COUNT) next = "bomb";
             else if (heartCount < HEARTS_COUNT) next = "heart";
+            else next = "safe";
           } else if (t.type === "bomb") {
             if (heartCount < HEARTS_COUNT) next = "heart";
+            else next = "safe";
+          } else {
+            next = "safe";
           }
           return { ...t, type: next };
         }
@@ -303,106 +339,122 @@ export default function GameScreen() {
       return;
     }
 
-    setPhase("waiting");
-    try {
-      const resultStatus = await multiplayerService.submitBoard(
-        roomCode,
-        playerId,
-        myGrid,
-      );
-      if (resultStatus === "playing") {
-        setPhase("playing");
-
-        // Trigger refresh immediately
-        const room = await multiplayerService.getRoomData(roomCode);
-        if (room) {
-          // Turn
-          if (room.game_state.turn) setCurrentTurn(room.game_state.turn);
-
-          // Opponent
-          const oppId = isHost ? room.opponent_id : room.host_id;
-          if (oppId && room.game_state[oppId]) {
-            const oppConfig = room.game_state[oppId].boardConfig;
-            if (oppConfig) {
-              setOpponentGrid((prev) => {
-                if (prev.length > 0 && prev[0].flipped === undefined)
-                  return prev;
-                return oppConfig.map((t: any) => ({ ...t, flipped: false }));
-              });
-            }
-            if (room.game_state[oppId].lives !== undefined) {
-              setOpponentLives(room.game_state[oppId].lives);
-            }
-          }
+    if (isOnlineMode) {
+      setPhase("waiting");
+      try {
+        const resultStatus = await multiplayerService.submitBoard(
+          roomCode,
+          playerId,
+          myGrid,
+        );
+        if (resultStatus === "playing") {
+          setPhase("playing");
         }
+      } catch (e) {
+        console.error("[GameScreen] submitBoard failed:", e);
       }
-    } catch (e) {
-      console.error("[GameScreen] submitBoard failed:", e);
+    } else {
+      // Offline Custom: Start Game
+      setPhase("playing");
+      setCurrentTurn(playerId);
     }
   };
 
-  // Playing Phase: Attack Opponent
   const handleAttack = async (tile: Tile) => {
     if (phase !== "playing") return;
     if (currentTurn !== playerId) {
-      Alert.alert("Wait!", "It's the opponent's turn.");
+      if (isOnlineMode) Alert.alert("Wait!", "It's the opponent's turn.");
       return;
     }
     if (tile.flipped) return;
 
-    // 1. Reveal locally immediately for responsiveness
+    // 1. Reveal locally
     const newGrid = [...opponentGrid];
     const targetTile = newGrid[tile.id];
     targetTile.flipped = true;
     setOpponentGrid(newGrid);
 
     let newOppLives = opponentLives;
-    let hitBomb = false;
-
     if (targetTile.type === "bomb") {
       playSound("bomb");
       newOppLives = Math.max(0, opponentLives - 1);
       setOpponentLives(newOppLives);
-      hitBomb = true;
     } else if (targetTile.type === "heart") {
       playSound("heart");
-      // No effect for hitting a heart logic defined, just sound
     } else {
       playSound("flip");
     }
 
-    // 2. Broadcast & Persist
-    const targetId = opponentId;
+    if (isOnlineMode) {
+      // --- ONLINE ---
+      const targetId = opponentId;
+      if (targetId) {
+        const nextVersion = lastProcessedVersion.current + 1;
+        lastProcessedVersion.current = nextVersion;
 
-    if (targetId) {
-      // A. Send Broadcast (Fast)
-      const nextVersion = lastProcessedVersion.current + 1;
-      lastProcessedVersion.current = nextVersion; // Optimistic update of version
+        multiplayerService.sendGameplayEvent(roomCode, {
+          type: "attack",
+          payload: {
+            targetId: targetId,
+            tileIndex: tile.id,
+            damage: tile.type === "bomb" ? 1 : 0,
+            nextTurn: targetId,
+            version: nextVersion,
+          },
+        });
+        setCurrentTurn(targetId);
 
-      multiplayerService.sendGameplayEvent(roomCode, {
-        type: "attack",
-        payload: {
-          targetId: targetId,
-          tileIndex: tile.id,
-          damage: tile.type === "bomb" ? 1 : 0,
-          nextTurn: targetId,
-          version: nextVersion,
-        },
-      });
+        const revealed = newGrid.filter((t) => t.flipped).map((t) => t.id);
+        multiplayerService
+          .handleAttack(roomCode, targetId, newOppLives, revealed, targetId)
+          .catch((e) => console.log(e));
+      }
+    } else {
+      // --- OFFLINE BOT ---
+      setCurrentTurn("Bot");
 
-      // B. Optimistic Local Update
-      setCurrentTurn(targetId);
+      if (newOppLives === 0) {
+        setWinner("You");
+        setPhase("game_over");
+        return;
+      }
 
-      // C. Background Persistence (Slow)
-      const revealed = newGrid.filter((t) => t.flipped).map((t) => t.id);
-      multiplayerService
-        .handleAttack(roomCode, targetId, newOppLives, revealed, targetId)
-        .catch((e) =>
-          console.log(
-            "Persistence background error (harmless if broadcast worked)",
-            e,
-          ),
-        );
+      // Bot Turn logic
+      setTimeout(() => {
+        if (myLives <= 0) return;
+
+        setMyGrid((prev) => {
+          const unrevealed = prev.filter((t) => !t.flipped);
+          if (unrevealed.length === 0) return prev;
+
+          const choice =
+            unrevealed[Math.floor(Math.random() * unrevealed.length)];
+          const nextGrid = prev.map((t) => {
+            if (t.id === choice.id) return { ...t, flipped: true };
+            return t;
+          });
+
+          let damage = 0;
+          if (choice.type === "bomb") {
+            playSound("bomb");
+            damage = 1;
+          } else {
+            playSound("flip");
+          }
+
+          setMyLives((lives) => {
+            const nextLives = Math.max(0, lives - damage);
+            if (nextLives === 0) {
+              setWinner("Bot");
+              setPhase("game_over");
+            }
+            return nextLives;
+          });
+
+          setCurrentTurn(playerId);
+          return nextGrid;
+        });
+      }, 800);
     }
   };
 
@@ -411,7 +463,6 @@ export default function GameScreen() {
       const room = await multiplayerService.getRoomData(roomCode);
       if (!room) return;
 
-      // Check Game Over
       const myState = room.game_state[playerId];
       const oppId = isHost ? room.opponent_id : room.host_id;
       const oppState = oppId ? room.game_state[oppId] : null;
@@ -425,53 +476,27 @@ export default function GameScreen() {
       } else if (room.status === "playing") {
         if (phase !== "playing") setPhase("playing");
 
-        // CHECK VERSION (Prevent Stale Data Revert)
         const serverVersion = room.game_state.version || 0;
-        if (serverVersion < lastProcessedVersion.current) {
-          console.log(
-            "[Sync] Ignoring stale data. Server:",
-            serverVersion,
-            "Local:",
-            lastProcessedVersion.current,
-          );
-          return;
-        }
-        // If server is newer or equal, accept it.
-        // Equal is fine (confirmation).
+        if (serverVersion < lastProcessedVersion.current) return;
         lastProcessedVersion.current = serverVersion;
 
-        // Sync Turn
         if (room.game_state.turn && room.game_state.turn !== currentTurn) {
           setCurrentTurn(room.game_state.turn);
         }
 
-        // Sync Opponent
         if (oppId && oppState) {
-          if (oppState.lives !== undefined) {
-            setOpponentLives(oppState.lives);
-          }
-
-          // Sync Grid: Merge Types and Flips
+          if (oppState.lives !== undefined) setOpponentLives(oppState.lives);
           if (oppState.boardConfig) {
             setOpponentGrid((prev) => {
               return prev.map((t, i) => {
                 const serverType = oppState.boardConfig[i]?.type || "safe";
                 const serverFlipped = oppState.revealedIndexes?.includes(i);
-                // Keep local flip if true (optimistic), otherwise use server
                 const isFlipped = t.flipped || serverFlipped;
-
-                return {
-                  ...t,
-                  id: i,
-                  type: serverType,
-                  flipped: isFlipped,
-                };
+                return { ...t, id: i, type: serverType, flipped: isFlipped };
               });
             });
           }
         }
-
-        // Sync My Board
         if (myState) {
           if (myState.lives !== undefined) setMyLives(myState.lives);
           if (myState.revealedIndexes) {
@@ -487,44 +512,20 @@ export default function GameScreen() {
           }
         }
       }
-    } catch (e) {
-      // console.log("Sync failed:", e);
-    }
+    } catch (e) {}
   }, [roomCode, playerId, currentTurn, isHost, phase]);
 
-  // --- Polling Fallback ---
+  // --- Polling (Online Only) ---
   useEffect(() => {
-    if (!roomCode) return;
-
-    // Initial sync
+    if (!roomCode || !isOnlineMode) return;
     syncGameState();
-
-    const interval = setInterval(() => {
-      syncGameState();
-    }, 2000); // Poll every 2 seconds
-
+    const interval = setInterval(() => syncGameState(), 2000);
     return () => clearInterval(interval);
-  }, [syncGameState]); // Added syncGameState to deps to prevent stale closures
+  }, [syncGameState, roomCode, isOnlineMode]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* DEBUG OVERLAY (Temporary for Turn Fix) */}
-      <View
-        style={{
-          position: "absolute",
-          top: 40,
-          left: 0,
-          right: 0,
-          zIndex: 999,
-          alignItems: "center",
-        }}
-      >
-        <Text style={{ fontSize: 10, color: "gray" }}>
-          MyID: {playerId?.substring(0, 4)} | Turn:{" "}
-          {currentTurn?.substring(0, 4)} | Status: {phase}
-        </Text>
-      </View>
-      {/* --- HUD --- */}
+      {/* HUD */}
       <View style={styles.hud}>
         <View style={styles.playerStats}>
           <Ionicons name="person" size={20} color={isDark ? "#FFF" : "#333"} />
@@ -559,7 +560,7 @@ export default function GameScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* --- TOP: ENEMY BOARD (ATTACK) --- */}
+        {/* ENEMY BOARD */}
         <Text style={[styles.sectionTitle, { color: theme.text }]}>
           Enemy Territory (Attack!)
         </Text>
@@ -594,10 +595,9 @@ export default function GameScreen() {
           )}
         </View>
 
-        {/* --- DIVIDER --- */}
         <View style={styles.divider} />
 
-        {/* --- BOTTOM: MY BOARD (DEFEND) --- */}
+        {/* MY BOARD */}
         <Text style={[styles.sectionTitle, { color: theme.text }]}>
           My Base (Defend)
         </Text>
@@ -612,7 +612,6 @@ export default function GameScreen() {
                 isDark={isDark}
                 onPress={() => phase === "setup" && handleSetupPress(tile)}
                 phase={phase === "setup" ? "setup_bombs" : "playing"}
-                // "setup_bombs" allows editing. "playing" shows reveals.
                 size={screenWidth / 6.5}
               />
             ))}
@@ -635,12 +634,8 @@ export default function GameScreen() {
               color={theme.primary}
               style={{ marginTop: 20 }}
             />
-            {/* DEBUG INFO: Helps user/dev see why it's waiting */}
             <Text style={{ marginTop: 20, color: theme.text, fontSize: 12 }}>
               Waiting for other player...
-            </Text>
-            <Text style={{ marginTop: 5, color: "#888", fontSize: 10 }}>
-              DEBUG: {roomCode}
             </Text>
           </View>
         )}
@@ -664,7 +659,6 @@ export default function GameScreen() {
             </TouchableOpacity>
           </View>
         </View>
-
         {winner && <ConfettiCannon count={200} origin={{ x: -10, y: 0 }} />}
       </Modal>
     </View>
@@ -777,24 +771,5 @@ const styles = StyleSheet.create({
   homeButtonText: {
     color: "white",
     fontWeight: "bold",
-  },
-  debugContainer: {
-    padding: 10,
-    backgroundColor: "rgba(0,0,0,0.1)",
-    marginVertical: 10,
-    borderRadius: 10,
-    alignItems: "center",
-  },
-  debugText: {
-    fontSize: 12,
-    marginBottom: 5,
-  },
-  debugButton: {
-    padding: 5,
-    borderRadius: 5,
-  },
-  debugButtonText: {
-    color: "white",
-    fontSize: 10,
   },
 });

@@ -30,7 +30,7 @@ export const useGameStore = create<GameState>()(
   persist(
     (set) => ({
       profile: {
-        name: "Suhaib Wadi",
+        name: "User Name",
         handle: "@suhaib_dev",
         avatar: null,
       },
