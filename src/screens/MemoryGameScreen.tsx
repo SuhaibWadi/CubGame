@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 import React, { useEffect, useState } from "react";
@@ -9,7 +10,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { MMKV } from "react-native-mmkv";
 import Animated, {
   FadeInDown,
   FadeInUp,
@@ -23,30 +23,6 @@ import { ms, s, vs } from "../theme/Dimensions";
 import { useTheme } from "../theme/ThemeContext";
 
 const HIGH_SCORE_KEY = "memory_game_high_score";
-
-// Safe Storage Wrapper
-const createStorage = () => {
-  try {
-    const mmkv = new MMKV();
-    return {
-      getItem: (key: string) => mmkv.getNumber(key) || 0,
-      setItem: (key: string, value: number) => mmkv.set(key, value),
-    };
-  } catch (e) {
-    console.warn(
-      "MMKV failed to initialize (likely due to Remote Debugger). Falling back to in-memory storage.",
-    );
-    const memoryStore: Record<string, number> = {};
-    return {
-      getItem: (key: string) => memoryStore[key] || 0,
-      setItem: (key: string, value: number) => {
-        memoryStore[key] = value;
-      },
-    };
-  }
-};
-
-const storage = createStorage();
 
 const GRID_SIZE = 3;
 const TOTAL_TILES = GRID_SIZE * GRID_SIZE;
@@ -146,8 +122,14 @@ export default function MemoryGameScreen() {
   const [activeTile, setActiveTile] = useState<number | null>(null);
   const [round, setRound] = useState(1);
   const [score, setScore] = useState(0);
-  const [highScore, setHighScore] = useState(storage.getItem(HIGH_SCORE_KEY));
+  const [highScore, setHighScore] = useState(0);
   const [currentPlayer, setCurrentPlayer] = useState<1 | 2>(1); // For Friend Mode
+
+  useEffect(() => {
+    AsyncStorage.getItem(HIGH_SCORE_KEY).then((val) => {
+      if (val) setHighScore(parseInt(val, 10));
+    });
+  }, []);
   const [message, setMessage] = useState("");
 
   // Helper to get current color
@@ -262,7 +244,7 @@ export default function MemoryGameScreen() {
       setScore(newScore);
       if (newScore > highScore) {
         setHighScore(newScore);
-        storage.setItem(HIGH_SCORE_KEY, newScore);
+        AsyncStorage.setItem(HIGH_SCORE_KEY, newScore.toString());
       }
       setMessage("Great!");
       setTimeout(() => {

@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Dimensions,
   ScrollView,
@@ -9,6 +9,8 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Modal,
+  ActivityIndicator,
 } from "react-native";
 import Animated, {
   Easing,
@@ -162,9 +164,44 @@ const FloatingCircle = ({
   );
 };
 
+const formatTime12Hour = (time24: string) => {
+  if (!time24) return "";
+  const [hourStr, minute] = time24.split(":");
+  let hour = parseInt(hourStr, 10);
+  const ampm = hour >= 12 ? "PM" : "AM";
+  hour = hour % 12;
+  hour = hour ? hour : 12;
+  return `${hour}:${minute} ${ampm}`;
+};
+
 export default function HomeScreen() {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<any>();
+  const [showPrayerModal, setShowPrayerModal] = useState(false);
+  const [prayerTimes, setPrayerTimes] = useState<any>(null);
+  const [isLoadingTimes, setIsLoadingTimes] = useState(false);
+
+  useEffect(() => {
+    if (showPrayerModal && !prayerTimes) {
+      const fetchPrayerTimes = async () => {
+        setIsLoadingTimes(true);
+        try {
+          const response = await fetch(
+            "https://api.aladhan.com/v1/timingsByCity?city=Amman&country=Jordan&method=23"
+          );
+          const json = await response.json();
+          if (json.data && json.data.timings) {
+            setPrayerTimes(json.data.timings);
+          }
+        } catch (e) {
+          console.warn("Failed to fetch prayer times", e);
+        } finally {
+          setIsLoadingTimes(false);
+        }
+      };
+      fetchPrayerTimes();
+    }
+  }, [showPrayerModal]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -190,15 +227,34 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>BETA v1.0</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <View>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>BETA v1.0</Text>
+              </View>
+              <Text style={[styles.title, { color: theme.text }]}>
+                CUB{"\n"}BLAST
+              </Text>
+              <Text style={[styles.subtitle, { color: isDark ? "#888" : "#666" }]}>
+                Yes Cub not Cup Don't Judge Me :)
+              </Text>
+            </View>
+
+            <TouchableOpacity 
+              style={{
+                width: s(44),
+                height: s(44),
+                borderRadius: s(22),
+                backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)",
+                alignItems: "center",
+                justifyContent: "center",
+                marginTop: vs(8)
+              }} 
+              onPress={() => setShowPrayerModal(true)}
+            >
+              <Ionicons name="moon" size={22} color={theme.text} />
+            </TouchableOpacity>
           </View>
-          <Text style={[styles.title, { color: theme.text }]}>
-            CUB{"\n"}BLAST
-          </Text>
-          <Text style={[styles.subtitle, { color: isDark ? "#888" : "#666" }]}>
-            Yes Cub not Cup Don't Judge Me :)
-          </Text>
         </View>
 
         <View style={styles.grid}>
@@ -271,6 +327,35 @@ export default function HomeScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      <Modal visible={showPrayerModal} animationType="slide" transparent>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={[styles.prayerModalContainer, { backgroundColor: theme.background }]}>
+            <View style={styles.prayerModalHeader}>
+              <Text style={[styles.prayerModalTitle, { color: theme.text }]}>Prayer Times (Amman)</Text>
+              <TouchableOpacity
+                onPress={() => setShowPrayerModal(false)}
+                style={{ padding: 4 }}
+              >
+                <Ionicons name="close" size={24} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+            
+            {isLoadingTimes || !prayerTimes ? (
+              <ActivityIndicator size="large" color={theme.primary} style={{ marginVertical: vs(40) }} />
+            ) : (
+              <View style={styles.prayerGrid}>
+                {['Fajr', 'Sunrise', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].map((prayer) => (
+                  <View key={prayer} style={[styles.prayerItem, { borderBottomColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }]}>
+                    <Text style={[styles.prayerName, { color: theme.text }]}>{prayer}</Text>
+                    <Text style={[styles.prayerTimeText, { color: theme.primary }]}>{formatTime12Hour(prayerTimes[prayer])}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -421,5 +506,41 @@ const styles = StyleSheet.create({
     fontSize: ms(10),
     fontWeight: "900",
     letterSpacing: 2,
+  },
+  prayerModalContainer: {
+    borderTopLeftRadius: s(30),
+    borderTopRightRadius: s(30),
+    padding: s(24),
+    paddingBottom: vs(50),
+    minHeight: vs(300),
+  },
+  prayerModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: vs(20),
+  },
+  prayerModalTitle: {
+    fontSize: ms(20),
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  prayerGrid: {
+    gap: vs(12),
+  },
+  prayerItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: vs(12),
+    borderBottomWidth: 1,
+  },
+  prayerName: {
+    fontSize: ms(16),
+    fontWeight: '600',
+  },
+  prayerTimeText: {
+    fontSize: ms(16),
+    fontWeight: '800',
   },
 });

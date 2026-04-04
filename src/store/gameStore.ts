@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { mmkvStorage } from "./storage";
+import { storage } from "./storage";
 
 interface UserProfile {
   name: string;
@@ -78,7 +78,7 @@ export const useGameStore = create<GameState>()(
     }),
     {
       name: "cubgame-store",
-      storage: createJSONStorage(() => mmkvStorage),
+      storage: createJSONStorage(() => storage),
     },
   ),
 );
